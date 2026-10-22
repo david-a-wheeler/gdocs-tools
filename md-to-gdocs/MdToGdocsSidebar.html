@@ -161,9 +161,11 @@ function show() {
     `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (done ? ', completed' : '');
   $('completed').checked = done;
   $('flags').textContent = c.flags.map(f => FLAG_HELP[f] || f).join(' ');
-  $('before').textContent = c.before_text || '(start of paragraph)';
-  $('old').textContent = c.old_text || '(nothing: this inserts new text)';
-  $('after').textContent = c.after_text || '(end of paragraph)';
+  // Mark each paragraph break with "¶", so empty paragraphs show.
+  const breaks = t => t.replace(/\n/g, '¶\n');
+  $('before').textContent = c.before_text ? breaks(c.before_text) : '(start of paragraph)';
+  $('old').textContent = c.old_text ? breaks(c.old_text) : '(nothing: this inserts new text)';
+  $('after').textContent = c.after_text ? breaks(c.after_text) : '(end of paragraph)';
   if (c.new_html) {
     $('preview').innerHTML = safeFragment(c.new_html);
   } else {

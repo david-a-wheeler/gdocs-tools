@@ -179,6 +179,14 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual((c['before_text'], c['after_text']),
                          ('Some words before the ', ' fox and after.'))
 
+    def test_context_takes_in_short_and_landmark_paragraphs(self):
+        md = ('# One\n\nQUIZ\\\nQ1. First?\n\nAnswer: A\\\nENDQUIZ\n\n'
+              '# Two\n\nQUIZ\\\nQ1. Second?\n\nAnswer: B\\\nENDQUIZ\n\nMore text.\n')
+        (c,) = change_list(diff(md, md.replace('B\\\nENDQUIZ\n', 'B\\\nENDQUIZ\\\nNew.\n')))['changes']
+        self.assertEqual(c['before_text'].split('\n')[-3:], ['', 'Answer: B', 'ENDQUIZ'])
+        self.assertIn('Q1. Second?', c['before_text'])
+        self.assertEqual(c['after_text'], '\n\nMore text.')
+
     def test_insert_and_delete_words(self):
         _, c = one_change('A b c.\n', 'A b new c.\n')
         self.assertEqual((c.kind, c.old_text, c.new_text), ('within', 'b', 'b new'))

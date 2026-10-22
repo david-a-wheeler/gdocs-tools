@@ -784,6 +784,34 @@ def _summary(c):
 _CONTEXT = 80  # characters of old text to show around a change
 
 
+def _around(paras, start, end, landmark):
+    """The old text around a change, for you to find it by hand if the
+    sidebar can't: at least _CONTEXT characters each side, taking in
+    neighboring paragraphs (one per line) when the change's own is short,
+    and back to the landmark paragraph, if any. Each paragraph is cut to
+    about _CONTEXT characters, keeping the part next to the change, or a
+    neighboring paragraph's start."""
+    def cut_start(t):
+        return t if len(t) <= _CONTEXT else '…' + t[-_CONTEXT:].split(' ', 1)[-1]
+
+    def cut_end(t):
+        return t if len(t) <= _CONTEXT else t[:_CONTEXT].rsplit(' ', 1)[0] + '…'
+
+    (sk, sa), (ek, eb) = start, end
+    lines = [cut_start(paras[sk].text[:sa])]
+    k = sk - 1
+    while k >= 0 and (sum(map(len, lines)) < _CONTEXT or
+                      (landmark is not None and k >= landmark)) and sk - k <= 12:
+        lines.insert(0, cut_end(paras[k].text))  # its start, to recognize it
+        k -= 1
+    after = [cut_end(paras[ek].text[eb:])]
+    k = ek + 1
+    while k < len(paras) and sum(map(len, after)) < _CONTEXT and k - ek <= 4:
+        after.append(cut_end(paras[k].text))
+        k += 1
+    return '\n'.join(lines), '\n'.join(after)
+
+
 def change_list(diff):
     """The change list the sidebar loads: changes(diff), each with spans
     to find where it goes in the doc (see find_span())."""
@@ -801,14 +829,10 @@ def change_list(diff):
         flags = list(c.flags)
         if not ok and 'not found' not in flags:
             flags.append('not found')
-        # The old text around the change, for you to find it by hand if
-        # the sidebar can't.
-        before = paras[sk].text[:sa]
-        after = paras[ek].text[eb:]
-        if len(before) > _CONTEXT:
-            before = '…' + before[-_CONTEXT:].split(' ', 1)[-1]
-        if len(after) > _CONTEXT:
-            after = after[:_CONTEXT].rsplit(' ', 1)[0] + '…'
+        lm = None
+        if start and start['landmark']:
+            lm = [i for i, p in enumerate(paras) if _matches(start['landmark'], p.text)]
+        before, after = _around(paras, c.start, c.end, lm[0] if lm else None)
         out.append({'id': c.id, 'kind': c.kind, 'summary': _summary(c),
                     'old_lines': list(c.old_lines), 'new_lines': list(c.new_lines),
                     'start': start, 'end': end, 'old_text': c.old_text,
