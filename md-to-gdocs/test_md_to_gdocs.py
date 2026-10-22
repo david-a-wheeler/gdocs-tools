@@ -29,11 +29,15 @@ class DocParasTest(unittest.TestCase):
             ('text', 'one'), ('empty', ''), ('text', 'two'),
             ('empty', ''), ('empty', ''), ('text', 'three')])
 
-    def test_blank_lines_next_to_headings_and_lists_are_syntax(self):
-        md = '# Head\n\nText.\n\n* item\n\nMore.\n\n## Sub\n'
+    def test_blank_lines_next_to_headings_and_before_lists_are_syntax(self):
+        md = '# Head\n\nText.\n\n* item\n\n## Sub\n'
         self.assertEqual(kinds_texts(md), [
             ('heading', 'Head'), ('text', 'Text.'), ('list', 'item'),
-            ('text', 'More.'), ('heading', 'Sub')])
+            ('heading', 'Sub')])
+
+    def test_blank_line_after_list_before_text_is_empty_paragraph(self):
+        self.assertEqual(kinds_texts('* item\n\nMore.\n'), [
+            ('list', 'item'), ('empty', ''), ('text', 'More.')])
 
     def test_quiz(self):
         md = ('Before.\n\nQUIZ\\\nQ1. Which?\n\nA) a\\\nB) b\\\nC) c\\\n'

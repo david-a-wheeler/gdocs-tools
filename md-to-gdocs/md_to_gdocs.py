@@ -135,8 +135,11 @@ def doc_paras(markdown):
     Each line of a Markdown paragraph is its own doc paragraph, however
     it ends ("\\", two spaces, or nothing), since Google's export writes
     two adjacent paragraphs as consecutive lines. A blank line between
-    two lines of ordinary text is an empty paragraph; other blank lines
-    are just Markdown syntax."""
+    two lines of ordinary text, or after a list and before text, is an
+    empty paragraph; other blank lines are just Markdown syntax. (In
+    one doc, that was right nearly everywhere; before a list or a
+    heading, the doc sometimes has an empty paragraph that the export
+    can't show, since Markdown needs the blank line anyway.)"""
     kept = _filter_lines(markdown.split('\n'))
     orig = [n for n, _ in kept]
     src = [line for _, line in kept]
@@ -191,7 +194,7 @@ def doc_paras(markdown):
 
     result = []
     for k, (i, p) in enumerate(paras):
-        if k and p.kind == 'text' and paras[k - 1][1].kind == 'text':
+        if k and p.kind == 'text' and paras[k - 1][1].kind in ('text', 'list'):
             for j in range(paras[k - 1][0] + 1, i):
                 if not src[j].strip():
                     result.append(DocPara(orig[j], 'empty', end=orig[j]))
