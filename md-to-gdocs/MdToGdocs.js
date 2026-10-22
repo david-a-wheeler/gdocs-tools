@@ -170,7 +170,7 @@ function mdToGdocsSelect_(doc, body, change, stats) {
     const rb = doc.newRange();
     mdToGdocsAddText_(rb, a.para, a.start, a.end);
     doc.setSelection(rb.build());
-    return 'Text selected: press Ctrl+V (or Delete).';
+    return 'Text selected: press Ctrl+V.';
   }
   // Across paragraphs: from the start span's middle to the end span's.
   const b = mdToGdocsFind_(body, change.end, stats);
@@ -197,7 +197,7 @@ function mdToGdocsSelect_(doc, body, change, stats) {
     mdToGdocsAddText_(rb, b.para, 0, b.end);
   }
   doc.setSelection(rb.build());
-  return 'Text selected: press Ctrl+V (or Delete).';
+  return 'Text selected: press Ctrl+V.';
 }
 
 // Your progress through a change list ("Completed" marks and the
