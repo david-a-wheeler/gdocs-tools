@@ -365,8 +365,6 @@ def _render(lines, flags):
                 out.append(f'</li></{open_lists.pop()[0]}>')
         inner = _inline_html(atoms, flags)
         if last:
-            if kind == 'list':
-                flags.add('list')
             out.append(inner)
         elif kind == 'list':
             flags.add('list')
@@ -413,7 +411,12 @@ def _change(old, new, oi, nj, old_paras, new_paras):
     # The unchanged paragraphs at each end mustn't be split, or a
     # paragraph that ends like it would take its place.
     head = len(old_paras[0].atoms) if _same(old_paras[0], new_paras[0]) else 0
-    tail = len(old_paras[-1].atoms) if _same(old_paras[-1], new_paras[-1]) else 0
+    # The unchanged paragraphs at the end (with the break before each).
+    tail = n = 0
+    while (n < min(len(old_paras), len(new_paras)) - 1 and
+           _same(old_paras[-1 - n], new_paras[-1 - n])):
+        tail += len(old_paras[-1 - n].atoms) + 1
+        n += 1
     limit = min(len(ot), len(nt))
     # Trim the common suffix first, so an inserted paragraph goes at the
     # end of the paragraph before it (the tested way), then the prefix.
@@ -459,7 +462,8 @@ def _change(old, new, oi, nj, old_paras, new_paras):
         at_end = at_start = None
         for k in range(len(rest) + 1):
             here = pos(ostarts, oend, prefix + k)
-            if _locatable(old_paras[here[0]]):
+            there = pos(ostarts, oend, prefix + k + (0 if inserting else len(mid)))
+            if _locatable(old_paras[here[0]]) and _locatable(old_paras[there[0]]):
                 if k == len(rest) or isinstance(rest[k], Break):
                     at_end = k
                 elif here[1] == 0:
@@ -555,46 +559,68 @@ def changes(diff):
         if _same(p, new[j]) and line_map.get(p.end) == new[j].end:
             fixed.append((i, j))
 
-    # Between those, pair each changed paragraph with the next new one
-    # that's the same paragraph edited, so each edit stays a small change
-    # within its paragraph, and what's left between pairs is paragraphs
-    # inserted or deleted. Pairs are listed with whether they're edited.
-    pairs = []
-    for (i1, j1), (i2, j2) in zip([(-1, -1)] + fixed, fixed + [(len(old), len(new))]):
+    def same_after(i, j):
+        """How many paragraphs right after old[i] and new[j] are the
+        same in both (up to 30)."""
+        n = 0
+        while (i + 1 + n < len(old) and j + 1 + n < len(new) and n < 30
+               and _same(old[i + 1 + n], new[j + 1 + n])):
+            n += 1
+        return n
+
+    def between(i1, j1, i2, j2):
+        """The change made by the paragraphs strictly between old[i1]
+        and old[i2], and new[j1] and new[j2], or None. The context is
+        old[i1] and old[i2] (in their old form, for edited paragraphs,
+        whose own edits are separate changes), plus the paragraphs after
+        old[i2] that are the same in both, so that a quiz added after a
+        quiz can slide past an ENDQUIZ that git matched to the new one."""
+        if i2 - i1 == 1 and j2 - j1 == 1:
+            return None
+        n = same_after(i2, j2) if i2 < len(old) else 0
+        lo = max(i1, 0)
+        ctx_old = old[lo:i2 + 1 + n]
+        ctx_new = ([old[i1]] if i1 >= 0 else []) + new[j1 + 1:j2] + old[i2:i2 + 1 + n]
+        c = _change(old, new, lo, max(j1, 0), ctx_old, ctx_new)
+        if c and not c[1]:
+            c[0].flags.append('not found')
+        return c[0] if c else None
+
+    # Between those, two ways to split up the changes: one change for
+    # all of it, or pairing each changed paragraph with the next new one
+    # that's the same paragraph edited (an edit within it), with the
+    # rest as paragraphs inserted or deleted. Pairing keeps separate
+    # edits apart (e.g., a new paragraph, an edited one, and a deleted
+    # one); one change suits joining or splitting paragraphs. Use
+    # whichever replaces less text.
+    result = []
+    bounds = [(-1, -1)] + fixed + [(len(old), len(new))]
+    for (i1, j1), (i2, j2) in zip(bounds, bounds[1:]):
+        if i2 - i1 == 1 and j2 - j1 == 1:
+            continue
+        whole = between(i1, j1, i2, j2)
+        options = [[whole] if whole else []]
+        pairs = []
         j = j1 + 1
         for i in range(i1 + 1, i2):
             if old[i].kind == 'empty':
                 continue
             for k in range(j, j2):
                 if _similar(old[i], new[k]):
-                    pairs.append((i, k, True))
+                    pairs.append((i, k))
                     j = k + 1
                     break
-        if i2 < len(old):
-            pairs.append((i2, j2, False))
-
-    result = []
-    for i, j, edited in pairs:
-        if edited:
-            c = _change(old, new, i, j, [old[i]], [new[j]])
-            if c:
-                result.append(c[0])
-    # Between consecutive pairs: paragraphs inserted or deleted. Edited
-    # paragraphs serve as context in their old form; their own edits
-    # are separate changes.
-    for (i1, j1, _), (i2, j2, _) in zip([(-1, -1, False)] + pairs,
-                                        pairs + [(len(old), len(new), False)]):
-        if i2 - i1 == 1 and j2 - j1 == 1:
-            continue
-        lo, hi = max(i1, 0), min(i2, len(old) - 1)
-        ctx_old = old[lo:hi + 1]
-        ctx_new = ([old[i1]] if i1 >= 0 else []) + new[j1 + 1:j2] + \
-            ([old[i2]] if i2 < len(old) else [])
-        c = _change(old, new, lo, max(j1, 0), ctx_old, ctx_new)
-        if c:
-            if not c[1]:
-                c[0].flags.append('not found')
-            result.append(c[0])
+        if pairs:
+            split = [c[0] for c in (_change(old, new, i, k, [old[i]], [new[k]])
+                                    for i, k in pairs) if c]
+            points = [(i1, j1)] + pairs + [(i2, j2)]
+            for (a, b), (c, d) in zip(points, points[1:]):
+                ch = between(a, b, c, d)
+                if ch:
+                    split.append(ch)
+            options.append(split)
+        result += min(options, key=lambda cs: (
+            sum(len(c.old_text) + len(c.new_text) for c in cs), len(cs)))
     result.sort(key=lambda c: (c.start, c.end), reverse=True)
     return old, result
 
@@ -734,6 +760,8 @@ def _summary(c):
         return 'Insert ' + short(c.new_text)
     if not c.new_text:
         return 'Delete ' + short(c.old_text)
+    if c.old_text == c.new_text:
+        return 'Reformat ' + short(c.old_text)
     return f'Replace {short(c.old_text)} with {short(c.new_text)}'
 
 

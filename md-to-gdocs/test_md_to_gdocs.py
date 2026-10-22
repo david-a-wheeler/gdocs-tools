@@ -246,6 +246,37 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual([paras[c.start[0]].text for c in found],
                          ['Delete me.', 'We focus on one specific thing.', 'Keep.'])
 
+    def test_quiz_after_quiz_when_git_matches_the_new_endquiz(self):
+        # Git may match the old "Answer: A" and ENDQUIZ to the new quiz's
+        # copies, making the insertion fall between them.
+        d = ('@@ -1,7 +1,12 @@\n Text.\n \n QUIZ\\\n Q1. One?\n'
+             '+Answer: A\\\n+ENDQUIZ\\\n+QUIZ\\\n+Q1. Two?\n+\n'
+             ' Answer: A\\\n ENDQUIZ\n \n More.\n')
+        paras, (c,) = changes(d)
+        self.assertEqual((c.kind, paras[c.start[0]].line), ('insert', 6))
+        self.assertTrue(c.new_text.startswith('\nQUIZ\nQ1. Two?'))
+
+    def test_join_paragraphs_is_one_small_change(self):
+        _, c = one_change('A long first paragraph, to do it.\n\n'
+                          'As we noted, this second paragraph is longer than that.\n',
+                          'A long first paragraph. Now one, and this second '
+                          'paragraph is longer than that.\n')
+        self.assertEqual(c.kind, 'across')
+        self.assertEqual(c.old_text, ', to do it.\n\nAs we noted,')
+
+    def test_delete_paragraph_before_image(self):
+        _, c = one_change('One.\n\nGone.\n\n![An image](x.png)\n\nTwo.\n',
+                          'One.\n\n![An image](x.png)\n\nTwo.\n')
+        self.assertEqual((c.old_text, c.flags), ('\n\nGone.', []))
+
+    def test_formatting_only_summary(self):
+        result = change_list(diff('Make this bold.\n', 'Make **this** bold.\n'))
+        self.assertEqual(result['changes'][0]['summary'], 'Reformat "this"')
+
+    def test_insert_word_in_list_item_needs_no_warning(self):
+        _, c = one_change('1. Consider it.\n', '1. Carefully consider it.\n')
+        self.assertEqual(c.flags, [])
+
     def test_several_changes_last_first(self):
         old = 'Alpha one.\n\nBeta two.\n\nGamma three.\n'
         new = 'Alpha 1.\n\nBeta two.\n\nGamma 3.\n'
