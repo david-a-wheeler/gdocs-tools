@@ -307,6 +307,15 @@ class ChangesTest(unittest.TestCase):
         _, c = one_change('1. Consider it.\n', '1. Carefully consider it.\n')
         self.assertEqual(c.flags, [])
 
+    def test_image_urls_dont_matter(self):
+        # Exports name images differently (e.g., with or without
+        # cleanup's images/ files); the doc has no text for an image, so
+        # only its alt text counts.
+        self.assertEqual(changes(diff('One.\n\n![A cat](images/cat.png){width=10 height=20}\n\nTwo.\n',
+                                      'One.\n\n![A cat][image3]\n\nTwo.\n\n[image3]: <data:image/png;base64,AAAA>\n'))[1], [])
+        _, c = one_change('Before ![A cat](a.png) after.\n', 'Before ![A cat](b.png) later.\n')
+        self.assertEqual((c.old_text, c.new_text), ('after.', 'later.'))
+
     def test_several_changes_last_first(self):
         old = 'Alpha one.\n\nBeta two.\n\nGamma three.\n'
         new = 'Alpha 1.\n\nBeta two.\n\nGamma 3.\n'
@@ -350,6 +359,14 @@ class FindSpanTest(unittest.TestCase):
         span = find_span(paras, k, 7, 7)
         self.assertEqual(span['landmark']['middle'], pattern('Answer: B'))
         self.assertTrue(span['para_start'] and span['para_end'])
+
+    def test_context_stops_at_an_image(self):
+        # findText() can't match across an image in the doc.
+        paras = doc_paras('Before ![A cat](a.png) after this, more.\n\nAfter that.\n')
+        a = paras[0].text.index('after')
+        span = find_span(paras, 0, a, a + 5)
+        self.assertNotIn('Before', span['before'])
+        self.assertFalse(span['para_start'])
 
     def test_unfindable(self):
         paras = doc_paras('Same.\n\nSame.\n')

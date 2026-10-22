@@ -744,10 +744,24 @@ def find_span(paras, k, a, b, keep_start=False, keep_end=False):
     text = p.text
     # Context boundaries a word at a time: before grows back from a,
     # after grows forward from b.
-    befores = sorted({0} | set(_word_cuts(p.atoms, 0, a)), reverse=True)
+    # In the doc, an image splits a paragraph's text into separate Text
+    # elements, and findText() can't match across them, so context stops
+    # at an image.
+    images, off = [], 0
+    for x in p.atoms:
+        if x.image is not None:
+            images.append(off)
+        off += len(x.text)
+    if any(a < i < b for i in images):
+        return None
+    lo_min = max([i for i in images if i <= a], default=0)
+    hi_max = min([i for i in images if i >= b], default=len(text))
+    if (keep_start and lo_min) or (keep_end and hi_max < len(text)):
+        return None
+    befores = sorted({lo_min} | set(_word_cuts(p.atoms, lo_min, a)), reverse=True)
     befores = [x for x in befores if x <= a]
-    ends = [m.end() for m in re.finditer(r'\w+', text) if m.end() >= b]
-    afters = [b] + [x for x in ends if x > b] + [len(text)]
+    ends = [m.end() for m in re.finditer(r'\w+', text) if b < m.end() < hi_max]
+    afters = [b] + ends + [hi_max]
     if keep_start:
         befores = [0]
     if keep_end:
