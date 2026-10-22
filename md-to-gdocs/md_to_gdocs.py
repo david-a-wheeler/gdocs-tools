@@ -7,6 +7,9 @@ for the sidebar in the doc to apply. This part models the doc: the
 paragraphs a Markdown file stands for, as the Google Doc has them.
 """
 
+# SPDX-FileCopyrightText: OpenSSF project contributors
+# SPDX-License-Identifier: MIT
+
 import re
 from dataclasses import dataclass
 

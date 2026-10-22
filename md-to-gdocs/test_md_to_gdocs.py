@@ -4,6 +4,9 @@ directory).
 To also compare a raw Google Docs Markdown export with its cleaned-up
 version, set MD_TO_GDOCS_RAW and MD_TO_GDOCS_CLEAN to their paths."""
 
+# SPDX-FileCopyrightText: OpenSSF project contributors
+# SPDX-License-Identifier: MIT
+
 import os
 import unittest
 
