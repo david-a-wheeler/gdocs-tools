@@ -5,7 +5,11 @@ This is the local half of md-to-gdocs: it reads a git diff of a
 Markdown file exported from a Google Doc, and works out each change
 for the sidebar in the doc to apply: doc_paras() models the doc (the
 paragraphs a Markdown file stands for, as the Google Doc has them),
-and changes() turns a diff into changes to it.
+changes() turns a diff into changes to it, and change_list() adds how
+to find each in the doc. Run as a command, it reads the diff on
+standard input (or from a file) and writes the change list as JSON:
+
+    git diff -U100000 BASE -- FILE.md | python3 -I md_to_gdocs.py > ,changes.json
 """
 
 # SPDX-FileCopyrightText: OpenSSF project contributors
@@ -15,6 +19,7 @@ import hashlib
 import html
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 
 from markdown_it import MarkdownIt
@@ -592,3 +597,207 @@ def changes(diff):
             result.append(c[0])
     result.sort(key=lambda c: (c.start, c.end), reverse=True)
     return old, result
+
+
+# Search patterns. The doc finds text with findText() (RE2 syntax), and
+# then the sidebar's code runs the same pattern as a JavaScript regular
+# expression to get offsets, and this file checks it with Python's re;
+# so patterns use only what all three treat alike: literal characters,
+# escapes of punctuation, and character classes with \t, \v, and \xa0.
+_WS = '[ \\t\\xa0\\v]+'  # \v is how findText() sees a soft line break
+_QUOTES = {"'": "['‘’]", '‘': "['‘’]", '’': "['‘’]",
+           '"': '["“”]', '“': '["“”]', '”': '["“”]'}
+
+
+def pattern(text):
+    """A search pattern for text, tolerant of differences between the
+    Markdown and the doc that don't matter: any whitespace matches any
+    other (the doc has tabs and no-break spaces; cleanup turns tabs into
+    spaces), and curly and straight quotes match each other."""
+    out = []
+    for m in re.finditer(r'\s+|.', text, re.S):
+        c = m.group()
+        if c.isspace():
+            out.append(_WS)
+        elif c in _QUOTES:
+            out.append(_QUOTES[c])
+        elif c in '\\.^$|?*+()[]{}':
+            out.append('\\' + c)
+        else:
+            out.append(c)
+    return ''.join(out)
+
+
+def _span(before, middle, after, para_start, para_end):
+    return {'before': pattern(before), 'middle': pattern(middle),
+            'after': pattern(after), 'para_start': para_start,
+            'para_end': para_end, 'landmark': None}
+
+
+def _matches(span, text):
+    """Where span matches in a paragraph's text: (start, end) of its
+    middle, for each match its anchors allow."""
+    rx = re.compile(f"({span['before']})({span['middle']})({span['after']})")
+    found = []
+    for m in rx.finditer(text):
+        if span['para_start'] and m.start() != 0:
+            continue
+        if span['para_end'] and m.end() != len(text):
+            continue
+        found.append((m.start(2), m.end(2)))
+    return found
+
+
+def _locate(paras, span, k, at):
+    """Does span find paragraph k, with its middle at offsets at, and
+    nothing else? With a landmark, the first match after it must be."""
+    if span['landmark'] is not None:
+        lm = span['landmark']
+        lk = [i for i, p in enumerate(paras) if _matches(lm, p.text)]
+        if len(lk) != 1:
+            return False
+        for i in range(lk[0] + 1, len(paras)):
+            found = _matches(span, paras[i].text)
+            if found:
+                return (i, found[0]) == (k, at)
+        return False
+    hits = [(i, f) for i, p in enumerate(paras) for f in _matches(span, p.text)]
+    return hits == [(k, at)]
+
+
+def _word_cuts(atoms, lo, hi):
+    """Character offsets in a paragraph where a word starts, from lo to
+    hi, for growing context a word at a time."""
+    cuts, off = [], 0
+    for a in atoms:
+        if lo <= off <= hi and re.match(r'\w', a.text):
+            cuts.append(off)
+        off += len(a.text)
+    return cuts
+
+
+def find_span(paras, k, a, b, keep_start=False, keep_end=False):
+    """A span that finds the text from offset a to b in paragraph k,
+    with as little context as makes it unique in paras (the old doc).
+    keep_start or keep_end ties it to the paragraph's start or end (a
+    span for one end of a change across paragraphs). Returns None if
+    nothing, not even a landmark, makes it unique."""
+    p = paras[k]
+    text = p.text
+    # Context boundaries a word at a time: before grows back from a,
+    # after grows forward from b.
+    befores = sorted({0} | set(_word_cuts(p.atoms, 0, a)), reverse=True)
+    befores = [x for x in befores if x <= a]
+    ends = [m.end() for m in re.finditer(r'\w+', text) if m.end() >= b]
+    afters = [b] + [x for x in ends if x > b] + [len(text)]
+    if keep_start:
+        befores = [0]
+    if keep_end:
+        afters = [len(text)]
+    # Start with up to two words each side.
+    bi = min(2, len(befores) - 1) if a else 0
+    ai = min(2, len(afters) - 1)
+    if not a:
+        befores = [0]
+    while True:
+        lo, hi = befores[bi], afters[ai]
+        span = _span(text[lo:a], text[a:b], text[b:hi], lo == 0, hi == len(text))
+        if _locate(paras, span, k, (a, b)):
+            return span
+        if bi == len(befores) - 1 and ai == len(afters) - 1:
+            break
+        if bi < len(befores) - 1:
+            bi += 1
+        if ai < len(afters) - 1:
+            ai += 1
+    # Not unique even as the whole paragraph (e.g., a quiz's ENDQUIZ):
+    # also give the nearest unique paragraph before it as a landmark.
+    for i in range(k - 1, -1, -1):
+        q = paras[i]
+        if not _locatable(q):
+            continue
+        lm = _span('', q.text, '', True, True)
+        if sum(bool(_matches(lm, r.text)) for r in paras) != 1:
+            continue
+        span['landmark'] = lm
+        if _locate(paras, span, k, (a, b)):
+            return span
+        break
+    return None
+
+
+def _summary(c):
+    def short(t):
+        t = ' '.join(t.split())
+        return f'"{t}"' if len(t) <= 40 else f'"{t[:18]}…{t[-18:]}"'
+    if not c.old_text:
+        return 'Insert ' + short(c.new_text)
+    if not c.new_text:
+        return 'Delete ' + short(c.old_text)
+    return f'Replace {short(c.old_text)} with {short(c.new_text)}'
+
+
+def change_list(diff):
+    """The change list the sidebar loads: changes(diff), each with spans
+    to find where it goes in the doc (see find_span())."""
+    paras, found = changes(diff)
+    out = []
+    for c in found:
+        (sk, sa), (ek, eb) = c.start, c.end
+        if sk == ek:
+            start, end = find_span(paras, sk, sa, eb), None
+            ok = start is not None
+        else:
+            start = find_span(paras, sk, sa, len(paras[sk].text), keep_end=True)
+            end = find_span(paras, ek, 0, eb, keep_start=True)
+            ok = start is not None and end is not None
+        flags = list(c.flags)
+        if not ok and 'not found' not in flags:
+            flags.append('not found')
+        out.append({'id': c.id, 'kind': c.kind, 'summary': _summary(c),
+                    'old_lines': list(c.old_lines), 'new_lines': list(c.new_lines),
+                    'start': start, 'end': end, 'old_text': c.old_text,
+                    'new_html': c.new_html, 'new_text': c.new_text,
+                    'flags': flags})
+    return {'format': 'md-to-gdocs 1', 'changes': out}
+
+
+_FLAG_HELP = {
+    'not found': "can't be found reliably in the doc; do it by hand",
+    'internal link': 'has a link within the doc; add the link by hand',
+    'image': 'has an image; do the image by hand',
+    'unsupported': 'is next to a table or code; check it by hand',
+    'list': 'has list items (pasting lists is untested); check them',
+    'style': 'joins a paragraph of another kind (e.g., a heading); check its style',
+}
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    try:
+        if argv:
+            with open(argv[0], encoding='utf-8') as f:
+                diff = f.read()
+        else:
+            diff = sys.stdin.read()
+        result = change_list(diff)
+    except (DiffError, OSError) as e:
+        print(f'md_to_gdocs: {e}', file=sys.stderr)
+        return 1
+    json.dump(result, sys.stdout, ensure_ascii=False, indent=1)
+    sys.stdout.write('\n')
+    changes_ = result['changes']
+    print(f'{len(changes_)} change(s), last in the doc first:', file=sys.stderr)
+    for n, c in enumerate(changes_, 1):
+        print(f"  {n}. lines {c['old_lines'][0]}-{c['old_lines'][1]}: {c['summary']}",
+              file=sys.stderr)
+        for flag in c['flags']:
+            print(f'     WARNING: {_FLAG_HELP.get(flag, flag)}', file=sys.stderr)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

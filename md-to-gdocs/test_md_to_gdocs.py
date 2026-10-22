@@ -9,10 +9,16 @@ version, set MD_TO_GDOCS_RAW and MD_TO_GDOCS_CLEAN to their paths."""
 
 import os
 import unittest
+import unittest.mock
 
+import contextlib
 import difflib
+import io
+import json
+import re
 
-from md_to_gdocs import Atom, DiffError, changes, doc_paras, parse_diff
+from md_to_gdocs import (Atom, DiffError, change_list, changes, doc_paras,
+                         find_span, main, parse_diff, pattern)
 
 
 def kinds_texts(markdown):
@@ -252,6 +258,66 @@ class ChangesTest(unittest.TestCase):
         _, a = changes(diff(old, old.replace('three', '3')))
         _, b = changes(diff(old, old.replace('three', '3').replace('one', '1')))
         self.assertEqual(a[0].id, b[0].id)
+
+
+class PatternTest(unittest.TestCase):
+    def test_tolerates_whitespace_and_quotes(self):
+        rx = re.compile(pattern('It’s "a"  test (1.5)'))
+        for text in ['It’s "a" test (1.5)', "It's “a”\ttest (1.5)",
+                     'It’s "a"\xa0test (1.5)', 'It’s "a"\vtest (1.5)']:
+            self.assertTrue(rx.fullmatch(text), text)
+        self.assertFalse(rx.fullmatch('It’s "a" test (115)'))
+
+
+class FindSpanTest(unittest.TestCase):
+    def test_minimal_context(self):
+        paras = doc_paras('The cat sat on the mat.\n\nThe dog sat on the log.\n')
+        span = find_span(paras, 0, 8, 11)  # "sat"
+        self.assertEqual(span['middle'], 'sat')
+        self.assertTrue(span['before'] and span['after'])
+
+    def test_context_grows_until_unique(self):
+        paras = doc_paras('A b c d e f g.\n\nX b c d e f y.\n')
+        span = find_span(paras, 0, 6, 7)  # "d", with "b c" and "e f" on each side
+        self.assertEqual(span['para_start'] or span['para_end'], True)
+
+    def test_landmark_for_repeated_paragraph(self):
+        md = ('# One\n\nQUIZ\\\nAnswer: A\\\nENDQUIZ\n\n'
+              '# Two\n\nQUIZ\\\nAnswer: B\\\nENDQUIZ\n')
+        paras = doc_paras(md)
+        k = [i for i, p in enumerate(paras) if p.text == 'ENDQUIZ'][1]
+        span = find_span(paras, k, 7, 7)
+        self.assertEqual(span['landmark']['middle'], pattern('Answer: B'))
+        self.assertTrue(span['para_start'] and span['para_end'])
+
+    def test_unfindable(self):
+        paras = doc_paras('Same.\n\nSame.\n')
+        self.assertIsNone(find_span(paras, 1, 0, 5))
+
+
+class ChangeListTest(unittest.TestCase):
+    def test_json_and_command_line(self):
+        d = diff('Keep this. Old end.\n\nOld start. Keep that.\n',
+                 'Keep this. New text. Keep that.\n')
+        result = change_list(d)
+        self.assertEqual(result['format'], 'md-to-gdocs 1')
+        (c,) = result['changes']
+        self.assertEqual((c['kind'], c['flags']), ('across', []))
+        self.assertTrue(c['start']['para_end'] and c['end']['para_start'])
+        self.assertEqual(c['summary'], 'Replace "Old end. Old start" with "New text"')
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                unittest.mock.patch('sys.stdin', io.StringIO(d)):
+            self.assertEqual(main([]), 0)
+        self.assertEqual(json.loads(out.getvalue()), result)
+        self.assertIn('1 change(s)', err.getvalue())
+
+    def test_command_line_error(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), \
+                unittest.mock.patch('sys.stdin', io.StringIO('')):
+            self.assertEqual(main([]), 1)
+        self.assertIn('no changes', err.getvalue())
 
 
 @unittest.skipUnless(os.environ.get('MD_TO_GDOCS_RAW')
