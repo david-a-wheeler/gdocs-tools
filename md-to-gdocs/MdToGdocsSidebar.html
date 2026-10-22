@@ -65,10 +65,10 @@
   <div id="before" class="box context"></div>
   <label class="h">Text to change</label>
   <div id="old" class="box"></div>
-  <label class="h">Text after</label>
-  <div id="after" class="box context"></div>
   <label class="h">Replace with</label>
   <div id="preview" class="box"></div>
+  <label class="h">Text after</label>
+  <div id="after" class="box context"></div>
   <p><button id="reload">Load another change list</button></p>
 </div>
 
@@ -198,13 +198,13 @@ function save() {
 }
 
 // Put a change's new content on the clipboard. Must run synchronously
-// inside a click handler: that's when the browser allows it.
+// inside a click handler: that's when the browser allows it. A deletion
+// empties the clipboard, so a Ctrl+V can't paste an earlier change.
 function copy(c) {
-  if (!c.new_html) return true;
   let fired = false;
   const onCopy = e => {
-    e.clipboardData.setData('text/html', c.new_html);
-    e.clipboardData.setData('text/plain', c.new_text);
+    e.clipboardData.setData('text/html', c.new_html || '');
+    e.clipboardData.setData('text/plain', c.new_text || '');
     e.preventDefault();
     fired = true;
   };
@@ -245,7 +245,8 @@ function go(n) {
     const times = ` [${sec(round)} s: startup ${sec(round - r.total)}, ` +
       `opening the doc ${sec(r.open)}, ${r.searches} searches ${sec(r.search)}]`;
     if (r.ok) {
-      setStatus('ok', (c.new_html ? r.message : r.message.replace('Ctrl+V (or Delete)', 'Delete')) + times);
+      setStatus('ok', (c.new_html ? r.message
+        : 'Text selected: press Delete (this change deletes it).') + times);
       google.script.host.editor.focus();
     } else {
       setStatus('bad', `Not found: ${r.message}. Your cursor hasn’t moved; do this change ` +
