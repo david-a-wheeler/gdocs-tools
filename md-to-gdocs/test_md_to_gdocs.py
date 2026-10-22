@@ -207,6 +207,13 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual(c.new_html, '<br><br>New.')
         self.assertEqual(c.new_text, '\n\nNew.')
 
+    def test_new_paragraph_after_a_heading_goes_at_the_next_paragraphs_start(self):
+        # Pasted at the heading's end, it became a heading too.
+        paras, c = one_change('# H\n\nText.\n', '# H\n\nNew.\n\nText.\n')
+        self.assertEqual((paras[c.start[0]].text, c.start[1]), ('Text.', 0))
+        self.assertEqual(c.new_html, f'{P}New.</p><br>')
+        self.assertEqual(c.flags, [])
+
     def test_new_quiz_after_a_quiz(self):
         quiz = ('QUIZ\\\nQ{n}. Why?\n\nA) a\\\nB) b\\\nC) c\\\nD) d\n\n'
                 'Answer: A\\\nENDQUIZ')

@@ -217,6 +217,12 @@ test('insert a quiz after a quiz, where ENDQUIZ repeats', () => {
   assert.ok(c.start.landmark);
 });
 
+test('insert a paragraph right after a heading', () => {
+  // At the start of the next paragraph, so it keeps that paragraph's style.
+  const [c] = checkEdit('# H\n\nText.\n', '# H\n\nNew.\n\nText.\n');
+  assert.ok(c.start.para_start);
+});
+
 test('delete a paragraph', () => {
   checkEdit('One.\n\nGone.\n\nTwo.\n', 'One.\n\nTwo.\n');
 });

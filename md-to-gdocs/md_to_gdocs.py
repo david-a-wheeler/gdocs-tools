@@ -459,18 +459,34 @@ def _change(old, new, oi, nj, old_paras, new_paras):
     if inserting != (prefix == len(nt) - suffix):
         mid = (nt if inserting else ot)[prefix:-suffix or None]
         rest = ot[len(ot) - suffix:]
-        at_end = at_start = None
+        # When a paste splits a paragraph, both halves keep its style, so
+        # inserted text paragraphs need a text paragraph to split: after
+        # a heading, a new paragraph pasted at its end became a heading
+        # too. So for those, prefer the end of a text paragraph, then the
+        # start of one.
+        plain = all(t.kind in ('text', 'empty') for t in mid if isinstance(t, Break))
+        at_end = at_start = at_text_end = at_text_start = None
         for k in range(len(rest) + 1):
             here = pos(ostarts, oend, prefix + k)
             there = pos(ostarts, oend, prefix + k + (0 if inserting else len(mid)))
             if _locatable(old_paras[here[0]]) and _locatable(old_paras[there[0]]):
+                text = old_paras[here[0]].kind == 'text'
                 if k == len(rest) or isinstance(rest[k], Break):
                     at_end = k
+                    at_text_end = k if text else at_text_end
                 elif here[1] == 0:
                     at_start = k
+                    at_text_start = k if text else at_text_start
             if k == len(rest) or mid[k % len(mid)] != rest[k]:
                 break
-        best = at_end if inserting or at_start is None else at_start
+        if not inserting:
+            best = at_end if at_start is None else at_start
+        elif plain and at_text_end is not None:
+            best = at_text_end
+        elif plain and at_text_start is not None:
+            best = at_text_start
+        else:
+            best = at_end
         if best:
             prefix += best
             suffix -= best
@@ -523,10 +539,10 @@ def _change(old, new, oi, nj, old_paras, new_paras):
         flags.add('style')
     kind = 'insert' if start == end else 'within' if start[0] == end[0] else 'across'
     # Where the doc can find it: by the text of a paragraph with text,
-    # and for an insertion of paragraphs, only at the end of one.
+    # and for an insertion of paragraphs, at the end or start of one.
     ok = _locatable(old_paras[start[0]]) and _locatable(old_paras[end[0]]) and \
-        not (kind == 'insert' and nmid and isinstance(nmid[0], Break) and
-             start[1] != len(old_paras[start[0]].text))
+        not (kind == 'insert' and nmid and any(isinstance(t, Break) for t in nmid) and
+             start[1] not in (0, len(old_paras[start[0]].text)))
     s, e = (oi + start[0], start[1]), (oi + end[0], end[1])
     change = Change(kind, s, e, old_text, new_html, new_text,
                     (old[s[0]].line, old[e[0]].line),
