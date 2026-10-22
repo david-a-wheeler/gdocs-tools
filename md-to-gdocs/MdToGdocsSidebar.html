@@ -248,13 +248,15 @@ function go(n) {
       setStatus('ok', (c.new_html ? r.message : r.message.replace('Ctrl+V (or Delete)', 'Delete')) + times);
       google.script.host.editor.focus();
     } else {
-      setStatus('bad', `Not found: ${r.message}. Do this change by hand, using the text before and after.` + times);
+      setStatus('bad', `Not found: ${r.message}. Your cursor hasn’t moved; do this change ` +
+        'by hand, using the text before and after.' + times);
     }
   }).catch(err => {
     if (gen !== goGen) return;
     stop();
     lastSaved = '';
-    setStatus('bad', `Error after ${TRIES} tries: ${err.message}. Click Select to try again.`);
+    setStatus('bad', `Error after ${TRIES} tries: ${err.message}. Don’t paste yet: ` +
+      'your cursor hasn’t moved. Click Select to try again.');
   });
 }
 
