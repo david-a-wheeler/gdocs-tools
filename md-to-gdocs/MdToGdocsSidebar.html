@@ -92,11 +92,13 @@ let current = 0;
 // google.script.run as a promise. Calls go one at a time (when two ran
 // at once, a slow save of your progress held up finding text). Some
 // calls fail before they start, and the sidebar isn't told for minutes,
-// so stop waiting after TIMEOUT ms, and try once more: every call here
-// is safe to repeat. A late answer to an abandoned try is ignored.
-const TIMEOUT = 20000;
+// so stop waiting after TIMEOUT ms (a call normally takes about 3 s),
+// and try again, up to TRIES times: every call here is safe to repeat.
+// A late answer to an abandoned try is ignored.
+const TIMEOUT = 10000;
+const TRIES = 3;
 let queue = Promise.resolve();
-let retrying = false;  // shown while waiting
+let attempt = 1;  // shown while waiting
 function once(fn, args) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -107,11 +109,12 @@ function once(fn, args) {
   });
 }
 function run(fn, ...args) {
-  const attempt = () => once(fn, args).catch(() => {
-    retrying = true;
-    return once(fn, args);
-  }).finally(() => { retrying = false; });
-  const p = queue.then(attempt, attempt);
+  const tryFrom = n => {
+    attempt = n;
+    return once(fn, args).catch(err => (n < TRIES ? tryFrom(n + 1) : Promise.reject(err)));
+  };
+  const go = () => tryFrom(1).finally(() => { attempt = 1; });
+  const p = queue.then(go, go);
   queue = p.catch(() => {});
   return p;
 }
@@ -122,7 +125,8 @@ let ticker = null;
 function waiting(what) {
   clearInterval(ticker);
   const t0 = Date.now();
-  const tick = () => setStatus('', `${what}${retrying ? ' (no answer, so trying again)' : ''}… ` +
+  const tick = () => setStatus('', `${what}` +
+    `${attempt > 1 ? ` (no answer, so trying again: try ${attempt} of ${TRIES})` : ''}… ` +
     `${Math.round((Date.now() - t0) / 1000)} s`);
   tick();
   ticker = setInterval(tick, 1000);
@@ -248,7 +252,7 @@ function go(n) {
     if (gen !== goGen) return;
     stop();
     lastSaved = '';
-    setStatus('bad', `Error: ${err.message}. Click Select to try again.`);
+    setStatus('bad', `Error after ${TRIES} tries: ${err.message}. Click Select to try again.`);
   });
 }
 
