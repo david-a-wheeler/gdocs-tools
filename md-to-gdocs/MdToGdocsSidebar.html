@@ -140,18 +140,26 @@ function show() {
   $('next').disabled = current === changes.length - 1;
 }
 
+// The progress to save, or null if it's the same as last saved.
+let lastSaved = '';
 function progress() {
-  return {
+  const p = {
     completed: changes.filter(c => completed.has(c.id)).map(c => c.id),
     current: changes[current].id,
   };
+  const json = JSON.stringify(p);
+  if (json === lastSaved) return null;
+  lastSaved = json;
+  return p;
 }
 
 // Save progress on its own (a click that finds text saves it along the
 // way, in the same call).
 function save() {
-  run('mdToGdocsSetProgress', progress())
-    .catch(err => setStatus('bad', 'Couldn’t save progress: ' + err.message));
+  const p = progress();
+  if (!p) return;
+  run('mdToGdocsSetProgress', p)
+    .catch(err => { lastSaved = ''; setStatus('bad', 'Couldn’t save progress: ' + err.message); });
 }
 
 // Put a change's new content on the clipboard. Must run synchronously
@@ -256,6 +264,7 @@ async function loadList(text) {
     completed = new Set(p.completed.filter(id => ids.has(id)));
     const k = changes.findIndex(c => c.id === p.current);
     if (k >= 0) current = k;
+    lastSaved = JSON.stringify(p);
   } catch (err) {
     setStatus('bad', 'Couldn’t read saved progress: ' + err.message);
   }
