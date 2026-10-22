@@ -26,6 +26,7 @@
   #status:empty { display: none; }
   #status.ok { background: #e6f4ea; }
   #status.bad { background: #c00; color: #fff; }
+  #status.delete { background: #f60; color: #fff; font-size: 16px; }
   #flags { color: #a00; }
   label.h { display: block; margin-top: 8px; font-weight: bold; }
   [hidden] { display: none; }
@@ -159,7 +160,8 @@ function show() {
   const c = changes[current];
   const done = completed.has(c.id);
   $('heading').textContent = `Change ${current + 1} of ${changes.length} ` +
-    `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (done ? ', completed' : '');
+    `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (c.new_html ? '' : ': DELETE') +
+    (done ? ', completed' : '');
   $('completed').checked = done;
   $('flags').textContent = c.flags.map(f => FLAG_HELP[f] || f).join(' ');
   // Mark each paragraph break with "¶", so empty paragraphs show.
@@ -170,7 +172,7 @@ function show() {
   if (c.new_html) {
     $('preview').innerHTML = safeFragment(c.new_html);
   } else {
-    $('preview').textContent = '(nothing: this deletes the text)';
+    $('preview').textContent = '(nothing: PRESS THE DELETE KEY)';
   }
   $('prev').disabled = current === 0;
   $('next').disabled = current === changes.length - 1;
@@ -248,7 +250,12 @@ function go(n) {
     const times = ` [${sec(round)} s: waiting ${sec(round - r.total)}${tries}, ` +
       `opening the doc ${sec(r.open)}, ${r.searches} searches ${sec(r.search)}]`;
     if (r.ok) {
-      setStatus('ok', r.message + times);
+      if (c.new_html) {
+        setStatus('ok', r.message + times);
+      } else {
+        setStatus('delete', 'Text selected. PRESS THE DELETE KEY (not Ctrl+V): ' +
+          'this change only deletes.' + times);
+      }
       google.script.host.editor.focus();
     } else {
       setStatus('bad', `Not found: ${r.message}. Your cursor hasn’t moved; do this change ` +

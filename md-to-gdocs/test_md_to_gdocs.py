@@ -190,10 +190,8 @@ class ChangesTest(unittest.TestCase):
     def test_insert_and_delete_words(self):
         _, c = one_change('A b c.\n', 'A b new c.\n')
         self.assertEqual((c.kind, c.old_text, c.new_text), ('within', 'b', 'b new'))
-        # A deletion widens by a word, which is pasted back, so that
-        # Ctrl+V works for it too.
         _, c = one_change('A b new c.\n', 'A b c.\n')
-        self.assertEqual((c.kind, c.old_text, c.new_html), ('within', 'b new', 'b'))
+        self.assertEqual((c.kind, c.old_text, c.new_html), ('within', ' new', ''))
 
     def test_trailing_punctuation_isnt_kept_alone(self):
         _, c = one_change('Is foo bar.\n', 'Is foo baz.\n')
@@ -231,11 +229,11 @@ class ChangesTest(unittest.TestCase):
 
     def test_delete_a_paragraph(self):
         paras, c = one_change('One.\n\nGone.\n\nTwo.\n', 'One.\n\nTwo.\n')
-        # From its start through the next paragraph's first word, which
-        # is pasted back, so that Ctrl+V works for a deletion too.
-        self.assertEqual((c.kind, c.old_text, c.new_html), ('across', 'Gone.\n\nTwo', 'Two'))
+        # From its start to the start of the next paragraph: the doc can
+        # find both without widening the change.
+        self.assertEqual((c.kind, c.old_text, c.new_html), ('across', 'Gone.\n\n', ''))
         self.assertEqual((paras[c.start[0]].text, c.start[1]), ('Gone.', 0))
-        self.assertEqual((paras[c.end[0]].text, c.end[1]), ('Two.', 3))
+        self.assertEqual((paras[c.end[0]].text, c.end[1]), ('Two.', 0))
 
     def test_replace_across_paragraphs(self):
         _, c = one_change('Keep this. Old end.\n\nOld start. Keep that.\n',
@@ -272,7 +270,7 @@ class ChangesTest(unittest.TestCase):
                'Keep too.\n')
         paras, found = changes(diff(old, new))
         self.assertEqual([(c.kind, c.old_text, c.new_text) for c in found], [
-            ('across', 'Delete me.\n\nKeep', 'Keep'),
+            ('across', 'Delete me.\n\n', ''),
             ('within', 'specific', 'particular'),
             ('insert', '', '\n\nBrand new.')])
         self.assertEqual([paras[c.start[0]].text for c in found],
@@ -299,7 +297,7 @@ class ChangesTest(unittest.TestCase):
     def test_delete_paragraph_before_image(self):
         _, c = one_change('One.\n\nGone.\n\n![An image](x.png)\n\nTwo.\n',
                           'One.\n\n![An image](x.png)\n\nTwo.\n')
-        self.assertEqual((c.old_text, c.new_text, c.flags), ('.\n\nGone.', '.', []))
+        self.assertEqual((c.old_text, c.flags), ('\n\nGone.', []))
 
     def test_formatting_only_summary(self):
         result = change_list(diff('Make this bold.\n', 'Make **this** bold.\n'))

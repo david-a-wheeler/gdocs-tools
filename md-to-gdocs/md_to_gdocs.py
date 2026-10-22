@@ -504,20 +504,6 @@ def _change(old, new, oi, nj, old_paras, new_paras):
     # " carefully" after it.
     def space(t):
         return isinstance(t, Atom) and t.text.isspace()
-    # A deletion pastes nothing, but Ctrl+V of nothing does nothing in
-    # Docs; so that Ctrl+V works for every change, widen a deletion by
-    # the word or punctuation next to it, and paste that back. Take the
-    # one before it if the deletion starts with a space (so the space
-    # ends up inside), else the one after, else the one before.
-    if prefix == len(nt) - suffix and prefix < len(ot) - suffix:
-        def word(t):
-            return isinstance(t, Atom) and not t.text.isspace()
-        after = suffix and word(ot[len(ot) - suffix])
-        before = prefix and word(ot[prefix - 1])
-        if before and (space(ot[prefix]) or not after):
-            prefix -= 1
-        elif after:
-            suffix -= 1
     while prefix < len(nt) - suffix:
         if space(nt[prefix]) and prefix and isinstance(ot[prefix - 1], Atom):
             prefix -= 1
