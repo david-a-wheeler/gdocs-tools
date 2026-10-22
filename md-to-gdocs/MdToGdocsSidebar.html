@@ -140,11 +140,18 @@ function show() {
   $('next').disabled = current === changes.length - 1;
 }
 
-function save() {
-  run('mdToGdocsSetProgress', {
+function progress() {
+  return {
     completed: changes.filter(c => completed.has(c.id)).map(c => c.id),
     current: changes[current].id,
-  }).catch(err => setStatus('bad', 'Couldn’t save progress: ' + err.message));
+  };
+}
+
+// Save progress on its own (a click that finds text saves it along the
+// way, in the same call).
+function save() {
+  run('mdToGdocsSetProgress', progress())
+    .catch(err => setStatus('bad', 'Couldn’t save progress: ' + err.message));
 }
 
 // Put a change's new content on the clipboard. Must run synchronously
@@ -190,16 +197,26 @@ function go(n) {
   const tick = () => setStatus('', `Finding it in the doc… ${Math.round((Date.now() - t0) / 1000)} s`);
   tick();
   ticker = setInterval(tick, 1000);
-  run('mdToGdocsLocate', c).then(msg => {
+  run('mdToGdocsLocate', c, progress()).then(r => {
     if (gen !== goGen) return;
     clearInterval(ticker);
-    setStatus('ok', c.new_html ? msg : msg.replace('Ctrl+V (or Delete)', 'Delete'));
-    google.script.host.editor.focus();
+    // Where the time went: startup is what the round trip took beyond
+    // the call itself.
+    const sec = ms => (ms / 1000).toFixed(1);
+    const round = Date.now() - t0;
+    const times = ` [${sec(round)} s: startup ${sec(round - r.total)}, ` +
+      `opening the doc ${sec(r.open)}, ${r.searches} searches ${sec(r.search)}]`;
+    if (r.ok) {
+      setStatus('ok', (c.new_html ? r.message : r.message.replace('Ctrl+V (or Delete)', 'Delete')) + times);
+      google.script.host.editor.focus();
+    } else {
+      setStatus('bad', `Not found: ${r.message}. Do this change by hand, using the text before and after.` + times);
+    }
   }).catch(err => {
     if (gen !== goGen) return;
     clearInterval(ticker);
-    setStatus('bad', `Not found: ${err.message}. Do this change by hand, using the text before and after.`);
-  }).then(() => { if (gen === goGen) save(); });
+    setStatus('bad', 'Error: ' + err.message);
+  });
 }
 
 function nextOpen(from) {

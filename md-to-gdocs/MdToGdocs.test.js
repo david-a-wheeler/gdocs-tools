@@ -181,7 +181,8 @@ function checkEdit(oldMd, newMd, edit) {
     assert.deepStrictEqual(change.flags, []);
     const doc = docFor(paras, edit);
     const gs = load(doc);
-    gs.mdToGdocsLocate(change);
+    const r = gs.mdToGdocsLocate(change);
+    assert.ok(r.ok, r.message);
     if (change.kind === 'insert') {
       assert.strictEqual(doc.selection, null);
       const p = paraOf(doc.cursor.el);
@@ -249,9 +250,24 @@ test('ambiguous or missing text is an error, not a guess', () => {
   const doc = fakeDoc([para('Same text.'), para('Same text.')]);
   const gs = load(doc);
   const span = { before: '', middle: 'Same', after: '', para_start: false, para_end: false, landmark: null };
-  assert.throws(() => gs.mdToGdocsLocate({ start: span, end: null }), /2 times/);
-  assert.throws(() => gs.mdToGdocsLocate({ start: { ...span, middle: 'Nope' }, end: null }),
-    /isn’t in the doc/);
+  let r = gs.mdToGdocsLocate({ start: span, end: null });
+  assert.ok(!r.ok);
+  assert.match(r.message, /2 times/);
+  r = gs.mdToGdocsLocate({ start: { ...span, middle: 'Nope' }, end: null });
+  assert.match(r.message, /isn’t in the doc/);
+  assert.strictEqual(doc.selection, null);
+});
+
+test('one call finds, reports timings, and saves progress', () => {
+  const doc = fakeDoc([para('Find me here.')]);
+  const gs = load(doc);
+  const span = { before: '', middle: 'me', after: '', para_start: false, para_end: false, landmark: null };
+  const r = gs.mdToGdocsLocate({ start: span, end: null }, { completed: ['x'], current: 'y' });
+  assert.ok(r.ok);
+  assert.strictEqual(r.searches, 2);  // the match, then a search for another
+  for (const k of ['open', 'search', 'total']) assert.strictEqual(typeof r[k], 'number');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(gs.mdToGdocsGetProgress())),
+    { completed: ['x'], current: 'y' });
 });
 
 test('progress survives in document properties', () => {

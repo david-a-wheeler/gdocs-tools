@@ -91,7 +91,13 @@ function mdToGdocsFind_(body, span, stats) {
   const full = span.before + span.middle + span.after;
   const re = new RegExp(`(${span.before})(${span.middle})(${span.after})`, 'y');
   const hits = [];
-  const find = after => { stats.calls++; return body.findText(full, after); };
+  const find = after => {
+    const t = Date.now();
+    const r = body.findText(full, after);
+    stats.calls++;
+    stats.ms += Date.now() - t;
+    return r;
+  };
   for (let r = find(from); r; r = find(r)) {
     const el = r.getElement();
     const para = mdToGdocsPara_(el);
@@ -128,25 +134,50 @@ function mdToGdocsAddText_(rb, para, from, to) {
   }
 }
 
-// Called from the sidebar: find a change (as in the change list) and
-// put your cursor there (an insertion) or select its old text. Returns
-// a message; throws an Error saying why if it can't.
-function mdToGdocsLocate(change) {
+// Called from the sidebar: find a change (as in the change list), put
+// your cursor there (an insertion) or select its old text, and save
+// your progress (passed along, so a click needs only one call to Apps
+// Script; each call is a fresh start that reopens the doc). Returns {
+// ok, message, and timings in ms: open (opening the doc), search (all
+// findText() calls), searches (how many), total }.
+function mdToGdocsLocate(change, progress) {
   const t0 = Date.now();
-  const stats = { calls: 0 };
-  const took = () => ` (${((Date.now() - t0) / 1000).toFixed(1)} s, ${stats.calls} searches)`;
-  const doc = mdToGdocsDoc_();
-  const body = doc.getBody();
+  const stats = { calls: 0, ms: 0 };
+  const result = { ok: false, message: '', open: 0, search: 0, searches: 0, total: 0 };
+  try {
+    const doc = mdToGdocsDoc_();
+    const body = doc.getBody();
+    body.getNumChildren();  // so opening the doc is timed here
+    result.open = Date.now() - t0;
+    result.message = mdToGdocsSelect_(doc, body, change, stats);
+    result.ok = true;
+  } catch (e) {
+    result.message = e.message;
+  }
+  if (progress) {
+    try {
+      mdToGdocsSetProgress(progress);
+    } catch (e) {
+      result.message += ` (Couldn’t save progress: ${e.message})`;
+    }
+  }
+  result.search = stats.ms;
+  result.searches = stats.calls;
+  result.total = Date.now() - t0;
+  return result;
+}
+
+function mdToGdocsSelect_(doc, body, change, stats) {
   const a = mdToGdocsFind_(body, change.start, stats);
   if (!change.end) {
     if (a.start === a.end) {
       doc.setCursor(mdToGdocsPosition_(doc, a.para, a.start));
-      return 'Cursor placed: press Ctrl+V.' + took();
+      return 'Cursor placed: press Ctrl+V.';
     }
     const rb = doc.newRange();
     mdToGdocsAddText_(rb, a.para, a.start, a.end);
     doc.setSelection(rb.build());
-    return 'Text selected: press Ctrl+V (or Delete).' + took();
+    return 'Text selected: press Ctrl+V (or Delete).';
   }
   // Across paragraphs: from the start span's middle to the end span's.
   const b = mdToGdocsFind_(body, change.end, stats);
@@ -173,7 +204,7 @@ function mdToGdocsLocate(change) {
     mdToGdocsAddText_(rb, b.para, 0, b.end);
   }
   doc.setSelection(rb.build());
-  return 'Text selected: press Ctrl+V (or Delete).' + took();
+  return 'Text selected: press Ctrl+V (or Delete).';
 }
 
 // Your progress through a change list ("Completed" marks and the
