@@ -481,6 +481,22 @@ def _change(old, new, oi, nj, old_paras, new_paras):
     while suffix and not old_paras[pos(ostarts, oend, len(ot) - suffix)[0]].text:
         suffix -= 1
 
+    # Docs drops whitespace at the edge of pasted HTML (and a no-break
+    # space would be a different character), so if the new text starts
+    # or ends with a space, widen the change by the word or punctuation
+    # next to it: e.g., insert ", carefully" for "," rather than
+    # " carefully" after it.
+    def space(t):
+        return isinstance(t, Atom) and t.text.isspace()
+    while prefix < len(nt) - suffix:
+        if space(nt[prefix]) and prefix and isinstance(ot[prefix - 1], Atom):
+            prefix -= 1
+        elif (space(nt[len(nt) - suffix - 1]) and suffix and
+              isinstance(ot[len(ot) - suffix], Atom)):
+            suffix -= 1
+        else:
+            break
+
     start = pos(ostarts, oend, prefix)
     end = pos(ostarts, oend, len(ot) - suffix)
     nstart = pos(nstarts, nend, prefix)
@@ -765,6 +781,9 @@ def _summary(c):
     return f'Replace {short(c.old_text)} with {short(c.new_text)}'
 
 
+_CONTEXT = 80  # characters of old text to show around a change
+
+
 def change_list(diff):
     """The change list the sidebar loads: changes(diff), each with spans
     to find where it goes in the doc (see find_span())."""
@@ -782,9 +801,18 @@ def change_list(diff):
         flags = list(c.flags)
         if not ok and 'not found' not in flags:
             flags.append('not found')
+        # The old text around the change, for you to find it by hand if
+        # the sidebar can't.
+        before = paras[sk].text[:sa]
+        after = paras[ek].text[eb:]
+        if len(before) > _CONTEXT:
+            before = '…' + before[-_CONTEXT:].split(' ', 1)[-1]
+        if len(after) > _CONTEXT:
+            after = after[:_CONTEXT].rsplit(' ', 1)[0] + '…'
         out.append({'id': c.id, 'kind': c.kind, 'summary': _summary(c),
                     'old_lines': list(c.old_lines), 'new_lines': list(c.new_lines),
                     'start': start, 'end': end, 'old_text': c.old_text,
+                    'before_text': before, 'after_text': after,
                     'new_html': c.new_html, 'new_text': c.new_text,
                     'flags': flags})
     return {'format': 'md-to-gdocs 1', 'changes': out}

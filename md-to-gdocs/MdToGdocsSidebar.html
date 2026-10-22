@@ -17,6 +17,7 @@
   .box { border: 1px solid #ccc; padding: 4px; margin-top: 4px;
          max-height: 220px; overflow: auto; white-space: pre-wrap; }
   #old { text-decoration: line-through; color: #a00; }
+  .context { color: #666; }
   #preview { white-space: normal; }
   /* With <base target="_top">, a click would navigate away from the doc. */
   #preview a { pointer-events: none; }
@@ -39,12 +40,13 @@
 </div>
 
 <div id="load">
-  <label class="h">Change list (made by md_to_gdocs.py)
-    <input type="file" id="file" accept=".json,application/json"></label>
+  <label class="h">Change list (made by md_to_gdocs.py): paste it here
+    <textarea id="pasted" rows="4"
+      placeholder="e.g., run wl-copy < ,changes.json, then paste"></textarea></label>
+  <button id="usePasted">Load</button>
   <details>
-    <summary>Or paste it</summary>
-    <textarea id="pasted" rows="4"></textarea>
-    <button id="usePasted">Load pasted list</button>
+    <summary>Or choose the file (may not work in your browser)</summary>
+    <input type="file" id="file" accept=".json,application/json">
   </details>
 </div>
 
@@ -59,8 +61,12 @@
   <label><input type="checkbox" id="completed"> Completed</label>
   <div id="status"></div>
   <div id="flags"></div>
+  <label class="h">Text before</label>
+  <div id="before" class="box context"></div>
   <label class="h">Text to change</label>
   <div id="old" class="box"></div>
+  <label class="h">Text after</label>
+  <div id="after" class="box context"></div>
   <label class="h">Replace with</label>
   <div id="preview" class="box"></div>
   <p><button id="reload">Load another change list</button></p>
@@ -83,9 +89,16 @@ let changes = [];
 let completed = new Set();
 let current = 0;
 
-// google.script.run as a promise.
-const run = (fn, ...args) => new Promise((resolve, reject) =>
-  google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+// google.script.run as a promise. Calls go one at a time: when two ran
+// at once, a slow save of your progress held up finding text.
+let queue = Promise.resolve();
+function run(fn, ...args) {
+  const call = () => new Promise((resolve, reject) =>
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+  const p = queue.then(call, call);
+  queue = p.catch(() => {});
+  return p;
+}
 
 function setStatus(cls, msg) {
   $('status').className = cls;
@@ -115,7 +128,9 @@ function show() {
     `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (done ? ', completed' : '');
   $('completed').checked = done;
   $('flags').textContent = c.flags.map(f => FLAG_HELP[f] || f).join(' ');
+  $('before').textContent = c.before_text || '(start of paragraph)';
   $('old').textContent = c.old_text || '(nothing: this inserts new text)';
+  $('after').textContent = c.after_text || '(end of paragraph)';
   if (c.new_html) {
     $('preview').innerHTML = safeFragment(c.new_html);
   } else {
@@ -153,29 +168,38 @@ let goGen = 0;
 
 // Go to change n: show it, and unless it's completed, copy its new
 // content, select its old text in the doc, and return focus to the doc.
+let ticker = null;
+
 function go(n) {
   current = n;
   show();
-  save();
   const c = changes[current];
   const gen = ++goGen;
+  clearInterval(ticker);
   if (completed.has(c.id)) {
     setStatus('', 'Completed. Uncheck “Completed” and click Select to redo it.');
+    save();
     return;
   }
   if (!copy(c)) {
     setStatus('bad', 'Couldn’t copy to the clipboard. Click Select to try again.');
     return;
   }
-  setStatus('', 'Finding it in the doc…');
+  // Show that it's still working: finding text can take a while.
+  const t0 = Date.now();
+  const tick = () => setStatus('', `Finding it in the doc… ${Math.round((Date.now() - t0) / 1000)} s`);
+  tick();
+  ticker = setInterval(tick, 1000);
   run('mdToGdocsLocate', c).then(msg => {
     if (gen !== goGen) return;
+    clearInterval(ticker);
     setStatus('ok', c.new_html ? msg : msg.replace('Ctrl+V (or Delete)', 'Delete'));
     google.script.host.editor.focus();
   }).catch(err => {
     if (gen !== goGen) return;
-    setStatus('bad', `Not found: ${err.message}. Do this change by hand.`);
-  });
+    clearInterval(ticker);
+    setStatus('bad', `Not found: ${err.message}. Do this change by hand, using the text before and after.`);
+  }).then(() => { if (gen === goGen) save(); });
 }
 
 function nextOpen(from) {
@@ -207,6 +231,8 @@ async function loadList(text) {
   changes = list.changes;
   completed = new Set();
   current = 0;
+  $('usePasted').disabled = true;
+  setStatus('', 'Loading…');
   try {
     const p = await run('mdToGdocsGetProgress');
     const ids = new Set(changes.map(c => c.id));
@@ -216,6 +242,7 @@ async function loadList(text) {
   } catch (err) {
     setStatus('bad', 'Couldn’t read saved progress: ' + err.message);
   }
+  $('usePasted').disabled = false;
   $('load').hidden = true;
   $('main').hidden = false;
   show();

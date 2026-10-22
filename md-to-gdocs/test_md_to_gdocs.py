@@ -164,9 +164,24 @@ class ChangesTest(unittest.TestCase):
                          ('The quick brown fox.', 4, 9))
         self.assertEqual((c.old_lines, c.new_lines), ((3, 3), (3, 3)))
 
+    def test_no_space_at_the_edge_of_new_text(self):
+        # Docs drops it when pasting, so widen by the neighboring word or
+        # punctuation instead.
+        _, c = one_change('In particular, consider it.\n',
+                          'In particular, carefully consider it.\n')
+        self.assertEqual((c.kind, c.old_text, c.new_text), ('within', ',', ', carefully'))
+        _, c = one_change('Consider it.\n', 'Carefully consider it.\n')
+        self.assertFalse(c.new_text[:1].isspace() or c.new_text[-1:].isspace())
+
+    def test_context_text(self):
+        (c,) = change_list(diff('Some words before the quick fox and after.\n',
+                                'Some words before the slow fox and after.\n'))['changes']
+        self.assertEqual((c['before_text'], c['after_text']),
+                         ('Some words before the ', ' fox and after.'))
+
     def test_insert_and_delete_words(self):
         _, c = one_change('A b c.\n', 'A b new c.\n')
-        self.assertEqual((c.kind, c.old_text, c.new_text), ('insert', '', ' new'))
+        self.assertEqual((c.kind, c.old_text, c.new_text), ('within', 'b', 'b new'))
         _, c = one_change('A b new c.\n', 'A b c.\n')
         self.assertEqual((c.kind, c.old_text, c.new_html), ('within', ' new', ''))
 

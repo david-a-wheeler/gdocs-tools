@@ -85,13 +85,14 @@ function mdToGdocsParts_(para) {
 // start, end }, with start and end the middle's offsets in the
 // paragraph's text. findText() finds the paragraph quickly; running the
 // same pattern as a JavaScript regex there gives the middle's offsets.
-function mdToGdocsFind_(body, span) {
+function mdToGdocsFind_(body, span, stats) {
   let from = null;
-  if (span.landmark) from = mdToGdocsFind_(body, span.landmark).range;
+  if (span.landmark) from = mdToGdocsFind_(body, span.landmark, stats).range;
   const full = span.before + span.middle + span.after;
   const re = new RegExp(`(${span.before})(${span.middle})(${span.after})`, 'y');
   const hits = [];
-  for (let r = body.findText(full, from); r; r = body.findText(full, r)) {
+  const find = after => { stats.calls++; return body.findText(full, after); };
+  for (let r = find(from); r; r = find(r)) {
     const el = r.getElement();
     const para = mdToGdocsPara_(el);
     if (!para || mdToGdocsInToc_(para)) continue;
@@ -131,21 +132,24 @@ function mdToGdocsAddText_(rb, para, from, to) {
 // put your cursor there (an insertion) or select its old text. Returns
 // a message; throws an Error saying why if it can't.
 function mdToGdocsLocate(change) {
+  const t0 = Date.now();
+  const stats = { calls: 0 };
+  const took = () => ` (${((Date.now() - t0) / 1000).toFixed(1)} s, ${stats.calls} searches)`;
   const doc = mdToGdocsDoc_();
   const body = doc.getBody();
-  const a = mdToGdocsFind_(body, change.start);
+  const a = mdToGdocsFind_(body, change.start, stats);
   if (!change.end) {
     if (a.start === a.end) {
       doc.setCursor(mdToGdocsPosition_(doc, a.para, a.start));
-      return 'Cursor placed: press Ctrl+V.';
+      return 'Cursor placed: press Ctrl+V.' + took();
     }
     const rb = doc.newRange();
     mdToGdocsAddText_(rb, a.para, a.start, a.end);
     doc.setSelection(rb.build());
-    return 'Text selected: press Ctrl+V (or Delete).';
+    return 'Text selected: press Ctrl+V (or Delete).' + took();
   }
   // Across paragraphs: from the start span's middle to the end span's.
-  const b = mdToGdocsFind_(body, change.end);
+  const b = mdToGdocsFind_(body, change.end, stats);
   const BODY = DocumentApp.ElementType.BODY_SECTION;
   if (a.para.getParent().getType() !== BODY || b.para.getParent().getType() !== BODY) {
     throw new Error('the text is in a table or other container; do it by hand');
@@ -169,7 +173,7 @@ function mdToGdocsLocate(change) {
     mdToGdocsAddText_(rb, b.para, 0, b.end);
   }
   doc.setSelection(rb.build());
-  return 'Text selected: press Ctrl+V (or Delete).';
+  return 'Text selected: press Ctrl+V (or Delete).' + took();
 }
 
 // Your progress through a change list ("Completed" marks and the
