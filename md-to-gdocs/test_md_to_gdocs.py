@@ -10,7 +10,9 @@ version, set MD_TO_GDOCS_RAW and MD_TO_GDOCS_CLEAN to their paths."""
 import os
 import unittest
 
-from md_to_gdocs import Atom, doc_paras
+import difflib
+
+from md_to_gdocs import Atom, DiffError, changes, doc_paras, parse_diff
 
 
 def kinds_texts(markdown):
@@ -108,6 +110,148 @@ class DocParasTest(unittest.TestCase):
               '# Intro {#intro}\n\nText.\n')
         self.assertEqual(kinds_texts(md), [
             ('heading', 'Title'), ('heading', 'Intro'), ('text', 'Text.')])
+
+
+def diff(old, new):
+    """A full-context unified diff, as git diff -U100000 makes."""
+    return ''.join(difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        'a/f.md', 'b/f.md', n=100000))
+
+
+def one_change(old, new):
+    paras, found = changes(diff(old, new))
+    assert len(found) == 1, found
+    return paras, found[0]
+
+
+P = '<p style="margin-top:0;margin-bottom:0">'
+
+
+class ParseDiffTest(unittest.TestCase):
+    def test_rebuilds_both_versions(self):
+        old_md, new_md, line_map, old_ch, new_ch = parse_diff(
+            diff('a\nb\nc\n', 'a\nB\nc\nd\n'))
+        self.assertEqual((old_md, new_md), ('a\nb\nc\n', 'a\nB\nc\nd\n'))
+        self.assertEqual(line_map, {1: 1, 3: 3})
+        self.assertEqual((old_ch, new_ch), ({2}, {2, 4}))
+
+    def test_errors(self):
+        with self.assertRaisesRegex(DiffError, 'no changes'):
+            parse_diff('')
+        with self.assertRaisesRegex(DiffError, '-U100000'):
+            parse_diff('@@ -5,3 +5,3 @@\n a\n-b\n+c\n')
+        with self.assertRaisesRegex(DiffError, '-U100000'):
+            parse_diff('@@ -1,2 +1,2 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n')
+        with self.assertRaisesRegex(DiffError, 'more than one file'):
+            parse_diff('diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n'
+                       'diff --git a/y b/y\n@@ -1 +1 @@\n-a\n+b\n')
+
+
+class ChangesTest(unittest.TestCase):
+    def test_replace_words_within_a_paragraph(self):
+        paras, c = one_change('One.\n\nThe quick brown fox.\n\nTwo.\n',
+                              'One.\n\nThe slow brown fox.\n\nTwo.\n')
+        self.assertEqual((c.kind, c.old_text, c.new_text, c.new_html),
+                         ('within', 'quick', 'slow', 'slow'))
+        self.assertEqual((paras[c.start[0]].text, c.start[1], c.end[1]),
+                         ('The quick brown fox.', 4, 9))
+        self.assertEqual((c.old_lines, c.new_lines), ((3, 3), (3, 3)))
+
+    def test_insert_and_delete_words(self):
+        _, c = one_change('A b c.\n', 'A b new c.\n')
+        self.assertEqual((c.kind, c.old_text, c.new_text), ('insert', '', ' new'))
+        _, c = one_change('A b new c.\n', 'A b c.\n')
+        self.assertEqual((c.kind, c.old_text, c.new_html), ('within', ' new', ''))
+
+    def test_trailing_punctuation_isnt_kept_alone(self):
+        _, c = one_change('Is foo bar.\n', 'Is foo baz.\n')
+        self.assertEqual((c.old_text, c.new_text), ('bar.', 'baz.'))
+
+    def test_new_paragraph_after_a_paragraph(self):
+        # The tested recipe (spike K10): at the end of the paragraph
+        # before, "<br><br>" for the break and the empty paragraph, then
+        # the new line bare.
+        paras, c = one_change('One.\n\nTwo.\n', 'One.\n\nNew.\n\nTwo.\n')
+        self.assertEqual(c.kind, 'insert')
+        self.assertEqual((paras[c.start[0]].text, c.start[1]), ('One.', 4))
+        self.assertEqual(c.new_html, '<br><br>New.')
+        self.assertEqual(c.new_text, '\n\nNew.')
+
+    def test_new_quiz_after_a_quiz(self):
+        quiz = ('QUIZ\\\nQ{n}. Why?\n\nA) a\\\nB) b\\\nC) c\\\nD) d\n\n'
+                'Answer: A\\\nENDQUIZ')
+        old = 'Text.\n\n' + quiz.format(n=1) + '\n\nMore.\n'
+        new = 'Text.\n\n' + quiz.format(n=1) + '\\\n' + quiz.format(n=2) + '\n\nMore.\n'
+        paras, c = one_change(old, new)
+        self.assertEqual(c.kind, 'insert')
+        self.assertEqual(paras[c.start[0]].text, 'ENDQUIZ')
+        self.assertEqual(paras[c.start[0]].line, 12)
+        self.assertEqual(c.new_html,
+                         f'<br>{P}QUIZ</p>{P}Q2. Why?</p><br>{P}A) a</p>{P}B) b</p>'
+                         f'{P}C) c</p>{P}D) d</p><br>{P}Answer: A</p>ENDQUIZ')
+
+    def test_delete_a_paragraph(self):
+        paras, c = one_change('One.\n\nGone.\n\nTwo.\n', 'One.\n\nTwo.\n')
+        # From its start to the start of the next paragraph: the doc can
+        # find both without widening the change.
+        self.assertEqual((c.kind, c.old_text, c.new_html), ('across', 'Gone.\n\n', ''))
+        self.assertEqual((paras[c.start[0]].text, c.start[1]), ('Gone.', 0))
+        self.assertEqual((paras[c.end[0]].text, c.end[1]), ('Two.', 0))
+
+    def test_replace_across_paragraphs(self):
+        _, c = one_change('Keep this. Old end.\n\nOld start. Keep that.\n',
+                          'Keep this. New text. Keep that.\n')
+        self.assertEqual(c.kind, 'across')
+        self.assertEqual(c.old_text, 'Old end.\n\nOld start')
+        self.assertEqual(c.new_html, 'New text')
+
+    def test_formatting_only(self):
+        _, c = one_change('Make this bold.\n', 'Make **this** bold.\n')
+        self.assertEqual((c.old_text, c.new_html), ('this', '<b>this</b>'))
+
+    def test_link_isnt_split(self):
+        _, c = one_change('See [the old page](https://a.org/).\n',
+                          'See [the new page](https://a.org/).\n')
+        self.assertEqual(c.old_text, 'the old page')
+        self.assertEqual(c.new_html, '<a href="https://a.org/">the new page</a>')
+
+    def test_flags(self):
+        _, c = one_change('See it.\n', 'See [it](#heading).\n')
+        self.assertEqual(c.flags, ['internal link'])
+        _, c = one_change('Text.\n', 'Text.\n\n* a\n* b\n\nMore.\n')
+        self.assertIn('list', c.flags)
+        self.assertIn('<ul><li style="margin-top:0;margin-bottom:0">a</li>', c.new_html)
+
+    def test_syntax_only_changes_are_not_changes(self):
+        # E.g., a cleanup that adds "\" where the export had two spaces.
+        self.assertEqual(changes(diff('One  \nTwo\n', 'One\\\nTwo\n'))[1], [])
+
+    def test_nearby_changes_stay_apart(self):
+        old = ('Keep.\n\nWe focus on one specific thing.\n\n'
+               'Delete me.\n\nKeep too.\n')
+        new = ('Keep.\n\nBrand new.\n\nWe focus on one particular thing.\n\n'
+               'Keep too.\n')
+        paras, found = changes(diff(old, new))
+        self.assertEqual([(c.kind, c.old_text, c.new_text) for c in found], [
+            ('across', 'Delete me.\n\n', ''),
+            ('within', 'specific', 'particular'),
+            ('insert', '', '\n\nBrand new.')])
+        self.assertEqual([paras[c.start[0]].text for c in found],
+                         ['Delete me.', 'We focus on one specific thing.', 'Keep.'])
+
+    def test_several_changes_last_first(self):
+        old = 'Alpha one.\n\nBeta two.\n\nGamma three.\n'
+        new = 'Alpha 1.\n\nBeta two.\n\nGamma 3.\n'
+        paras, found = changes(diff(old, new))
+        self.assertEqual([(paras[c.start[0]].text, c.new_text) for c in found],
+                         [('Gamma three.', '3.'), ('Alpha one.', '1.')])
+
+    def test_id_survives_unrelated_edits(self):
+        old = 'Alpha one.\n\nBeta two.\n\nGamma three.\n'
+        _, a = changes(diff(old, old.replace('three', '3')))
+        _, b = changes(diff(old, old.replace('three', '3').replace('one', '1')))
+        self.assertEqual(a[0].id, b[0].id)
 
 
 @unittest.skipUnless(os.environ.get('MD_TO_GDOCS_RAW')
