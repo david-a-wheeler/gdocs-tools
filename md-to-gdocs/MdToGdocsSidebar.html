@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<!--
+  md-to-gdocs sidebar. Paste this into the doc's Apps Script project as
+  an HTML file named MdToGdocsSidebar, next to MdToGdocs.
+
+  SPDX-FileCopyrightText: OpenSSF project contributors
+  SPDX-License-Identifier: MIT
+-->
+<html>
+<head>
+<base target="_top">
+<style>
+  body { font: 13px Arial, sans-serif; margin: 8px; }
+  button { margin: 4px 4px 0 0; }
+  textarea { width: 100%; box-sizing: border-box; font: 11px monospace; }
+  .note { background: #fff4c2; padding: 6px; }
+  .box { border: 1px solid #ccc; padding: 4px; margin-top: 4px;
+         max-height: 220px; overflow: auto; white-space: pre-wrap; }
+  #old { text-decoration: line-through; color: #a00; }
+  #preview { white-space: normal; }
+  /* With <base target="_top">, a click would navigate away from the doc. */
+  #preview a { pointer-events: none; }
+  #heading { font-weight: bold; margin-top: 8px; }
+  #status { margin-top: 8px; padding: 6px; font-weight: bold; }
+  #status:empty { display: none; }
+  #status.ok { background: #e6f4ea; }
+  #status.bad { background: #c00; color: #fff; }
+  #flags { color: #a00; }
+  label.h { display: block; margin-top: 8px; font-weight: bold; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="note">
+  I recommend Suggesting mode (the pencil icon at the top right of the
+  doc), so each paste becomes a suggestion that others can review. A
+  suggestion shows as colored text with a note in the margin. The mode
+  is your choice; Ctrl+Z undoes a paste either way.
+</div>
+
+<div id="load">
+  <label class="h">Change list (made by md_to_gdocs.py)
+    <input type="file" id="file" accept=".json,application/json"></label>
+  <details>
+    <summary>Or paste it</summary>
+    <textarea id="pasted" rows="4"></textarea>
+    <button id="usePasted">Load pasted list</button>
+  </details>
+</div>
+
+<div id="main" hidden>
+  <div id="heading"></div>
+  <div>
+    <button id="prev">Previous</button>
+    <button id="select">Select</button>
+    <button id="next">Next</button>
+    <button id="done">Done</button>
+  </div>
+  <label><input type="checkbox" id="completed"> Completed</label>
+  <div id="status"></div>
+  <div id="flags"></div>
+  <label class="h">Text to change</label>
+  <div id="old" class="box"></div>
+  <label class="h">Replace with</label>
+  <div id="preview" class="box"></div>
+  <p><button id="reload">Load another change list</button></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// What each flag (from md_to_gdocs.py) means for you.
+const FLAG_HELP = {
+  'not found': 'This can’t be found reliably in the doc; do it by hand.',
+  'internal link': 'This has a link within the doc; add the link by hand.',
+  'image': 'This has an image; do the image by hand.',
+  'unsupported': 'This is next to a table or code; check it by hand.',
+  'list': 'This has list items (pasting lists is untested); check them.',
+  'style': 'This joins a paragraph of another kind (e.g., a heading); check its style.',
+};
+
+let changes = [];
+let completed = new Set();
+let current = 0;
+
+// google.script.run as a promise.
+const run = (fn, ...args) => new Promise((resolve, reject) =>
+  google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
+
+function setStatus(cls, msg) {
+  $('status').className = cls;
+  $('status').textContent = msg;
+}
+
+// The change list is a file you load, so show its HTML without anything
+// active in it: no scripts, styles, frames, event handlers, or
+// non-web links.
+function safeFragment(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, style, iframe, object, embed, link, meta')
+    .forEach(e => e.remove());
+  doc.querySelectorAll('*').forEach(e => {
+    for (const a of [...e.attributes]) {
+      if (/^on/i.test(a.name)) e.removeAttribute(a.name);
+      if (a.name === 'href' && !/^https?:/i.test(a.value)) e.removeAttribute(a.name);
+    }
+  });
+  return doc.body.innerHTML;
+}
+
+function show() {
+  const c = changes[current];
+  const done = completed.has(c.id);
+  $('heading').textContent = `Change ${current + 1} of ${changes.length} ` +
+    `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (done ? ', completed' : '');
+  $('completed').checked = done;
+  $('flags').textContent = c.flags.map(f => FLAG_HELP[f] || f).join(' ');
+  $('old').textContent = c.old_text || '(nothing: this inserts new text)';
+  if (c.new_html) {
+    $('preview').innerHTML = safeFragment(c.new_html);
+  } else {
+    $('preview').textContent = '(nothing: this deletes the text)';
+  }
+  $('prev').disabled = current === 0;
+  $('next').disabled = current === changes.length - 1;
+}
+
+function save() {
+  run('mdToGdocsSetProgress', {
+    completed: changes.filter(c => completed.has(c.id)).map(c => c.id),
+    current: changes[current].id,
+  }).catch(err => setStatus('bad', 'Couldn’t save progress: ' + err.message));
+}
+
+// Put a change's new content on the clipboard. Must run synchronously
+// inside a click handler: that's when the browser allows it.
+function copy(c) {
+  if (!c.new_html) return true;
+  let fired = false;
+  const onCopy = e => {
+    e.clipboardData.setData('text/html', c.new_html);
+    e.clipboardData.setData('text/plain', c.new_text);
+    e.preventDefault();
+    fired = true;
+  };
+  document.addEventListener('copy', onCopy);
+  try { document.execCommand('copy'); } finally { document.removeEventListener('copy', onCopy); }
+  return fired;
+}
+
+// Each go bumps this, so a slow, stale locate can't take focus later.
+let goGen = 0;
+
+// Go to change n: show it, and unless it's completed, copy its new
+// content, select its old text in the doc, and return focus to the doc.
+function go(n) {
+  current = n;
+  show();
+  save();
+  const c = changes[current];
+  const gen = ++goGen;
+  if (completed.has(c.id)) {
+    setStatus('', 'Completed. Uncheck “Completed” and click Select to redo it.');
+    return;
+  }
+  if (!copy(c)) {
+    setStatus('bad', 'Couldn’t copy to the clipboard. Click Select to try again.');
+    return;
+  }
+  setStatus('', 'Finding it in the doc…');
+  run('mdToGdocsLocate', c).then(msg => {
+    if (gen !== goGen) return;
+    setStatus('ok', c.new_html ? msg : msg.replace('Ctrl+V (or Delete)', 'Delete'));
+    google.script.host.editor.focus();
+  }).catch(err => {
+    if (gen !== goGen) return;
+    setStatus('bad', `Not found: ${err.message}. Do this change by hand.`);
+  });
+}
+
+function nextOpen(from) {
+  for (let k = from + 1; k < changes.length; k++) {
+    if (!completed.has(changes[k].id)) return k;
+  }
+  for (let k = 0; k <= from; k++) {
+    if (!completed.has(changes[k].id)) return k;
+  }
+  return -1;
+}
+
+async function loadList(text) {
+  let list;
+  try {
+    list = JSON.parse(text);
+  } catch (e) {
+    setStatus('bad', 'That isn’t a change list (not JSON).');
+    return;
+  }
+  if (!list || list.format !== 'md-to-gdocs 1' || !Array.isArray(list.changes)) {
+    setStatus('bad', 'That isn’t a change list from md_to_gdocs.py.');
+    return;
+  }
+  if (!list.changes.length) {
+    setStatus('bad', 'That change list has no changes.');
+    return;
+  }
+  changes = list.changes;
+  completed = new Set();
+  current = 0;
+  try {
+    const p = await run('mdToGdocsGetProgress');
+    const ids = new Set(changes.map(c => c.id));
+    completed = new Set(p.completed.filter(id => ids.has(id)));
+    const k = changes.findIndex(c => c.id === p.current);
+    if (k >= 0) current = k;
+  } catch (err) {
+    setStatus('bad', 'Couldn’t read saved progress: ' + err.message);
+  }
+  $('load').hidden = true;
+  $('main').hidden = false;
+  show();
+  setStatus('', completed.size
+    ? `Welcome back: ${completed.size} of ${changes.length} completed. Click Select to continue.`
+    : 'Click Select to start with this change (the last in the doc).');
+}
+
+$('file').addEventListener('change', () => {
+  const f = $('file').files[0];
+  if (f) f.text().then(loadList);
+});
+$('usePasted').onclick = () => loadList($('pasted').value);
+$('reload').onclick = () => {
+  $('main').hidden = true;
+  $('load').hidden = false;
+  $('file').value = '';
+  setStatus('', '');
+};
+$('prev').onclick = () => go(current - 1);
+$('next').onclick = () => go(current + 1);
+$('select').onclick = () => go(current);
+$('done').onclick = () => {
+  completed.add(changes[current].id);
+  const k = nextOpen(current);
+  if (k < 0) {
+    show();
+    save();
+    setStatus('ok', 'All changes completed.');
+  } else {
+    go(k);
+  }
+};
+$('completed').onchange = () => {
+  const id = changes[current].id;
+  if ($('completed').checked) completed.add(id); else completed.delete(id);
+  show();
+  save();
+};
+
+run('mdToGdocsWarmUp').catch(err => setStatus('bad', err.message));
+</script>
+</body>
+</html>
