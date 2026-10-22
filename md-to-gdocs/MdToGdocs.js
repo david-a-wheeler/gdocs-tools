@@ -26,13 +26,6 @@ function mdToGdocsShowSidebar() {
   DocumentApp.getUi().showSidebar(html);
 }
 
-// Called when the sidebar opens, so Apps Script's slow first call
-// (about 5 s) happens while you load the change list.
-function mdToGdocsWarmUp() {
-  mdToGdocsDoc_();
-  return true;
-}
-
 // getBody() is the first tab's body, which may not be the tab you're
 // looking at, so refuse docs with several tabs.
 function mdToGdocsDoc_() {

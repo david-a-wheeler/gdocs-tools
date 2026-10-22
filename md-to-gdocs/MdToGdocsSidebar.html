@@ -89,15 +89,44 @@ let changes = [];
 let completed = new Set();
 let current = 0;
 
-// google.script.run as a promise. Calls go one at a time: when two ran
-// at once, a slow save of your progress held up finding text.
+// google.script.run as a promise. Calls go one at a time (when two ran
+// at once, a slow save of your progress held up finding text). Some
+// calls fail before they start, and the sidebar isn't told for minutes,
+// so stop waiting after TIMEOUT ms, and try once more: every call here
+// is safe to repeat. A late answer to an abandoned try is ignored.
+const TIMEOUT = 20000;
 let queue = Promise.resolve();
+let retrying = false;  // shown while waiting
+function once(fn, args) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`no answer from Apps Script in ${TIMEOUT / 1000} s`)), TIMEOUT);
+    google.script.run
+      .withSuccessHandler(v => { clearTimeout(timer); resolve(v); })
+      .withFailureHandler(e => { clearTimeout(timer); reject(e); })[fn](...args);
+  });
+}
 function run(fn, ...args) {
-  const call = () => new Promise((resolve, reject) =>
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args));
-  const p = queue.then(call, call);
+  const attempt = () => once(fn, args).catch(() => {
+    retrying = true;
+    return once(fn, args);
+  }).finally(() => { retrying = false; });
+  const p = queue.then(attempt, attempt);
   queue = p.catch(() => {});
   return p;
+}
+
+// Show what's happening while waiting, with the seconds so far. Returns
+// a function to stop it.
+let ticker = null;
+function waiting(what) {
+  clearInterval(ticker);
+  const t0 = Date.now();
+  const tick = () => setStatus('', `${what}${retrying ? ' (no answer, so trying again)' : ''}… ` +
+    `${Math.round((Date.now() - t0) / 1000)} s`);
+  tick();
+  ticker = setInterval(tick, 1000);
+  return () => clearInterval(ticker);
 }
 
 function setStatus(cls, msg) {
@@ -183,8 +212,6 @@ let goGen = 0;
 
 // Go to change n: show it, and unless it's completed, copy its new
 // content, select its old text in the doc, and return focus to the doc.
-let ticker = null;
-
 function go(n) {
   current = n;
   show();
@@ -200,14 +227,11 @@ function go(n) {
     setStatus('bad', 'Couldn’t copy to the clipboard. Click Select to try again.');
     return;
   }
-  // Show that it's still working: finding text can take a while.
   const t0 = Date.now();
-  const tick = () => setStatus('', `Finding it in the doc… ${Math.round((Date.now() - t0) / 1000)} s`);
-  tick();
-  ticker = setInterval(tick, 1000);
+  const stop = waiting('Finding it in the doc');
   run('mdToGdocsLocate', c, progress()).then(r => {
     if (gen !== goGen) return;
-    clearInterval(ticker);
+    stop();
     // Where the time went: startup is what the round trip took beyond
     // the call itself.
     const sec = ms => (ms / 1000).toFixed(1);
@@ -222,8 +246,9 @@ function go(n) {
     }
   }).catch(err => {
     if (gen !== goGen) return;
-    clearInterval(ticker);
-    setStatus('bad', 'Error: ' + err.message);
+    stop();
+    lastSaved = '';
+    setStatus('bad', `Error: ${err.message}. Click Select to try again.`);
   });
 }
 
@@ -257,7 +282,8 @@ async function loadList(text) {
   completed = new Set();
   current = 0;
   $('usePasted').disabled = true;
-  setStatus('', 'Loading…');
+  const stop = waiting('Loading: reading your saved progress');
+  let failed = null;
   try {
     const p = await run('mdToGdocsGetProgress');
     const ids = new Set(changes.map(c => c.id));
@@ -266,15 +292,21 @@ async function loadList(text) {
     if (k >= 0) current = k;
     lastSaved = JSON.stringify(p);
   } catch (err) {
-    setStatus('bad', 'Couldn’t read saved progress: ' + err.message);
+    failed = err;
   }
+  stop();
   $('usePasted').disabled = false;
   $('load').hidden = true;
   $('main').hidden = false;
   show();
-  setStatus('', completed.size
-    ? `Welcome back: ${completed.size} of ${changes.length} completed. Click Select to continue.`
-    : 'Click Select to start with this change (the last in the doc).');
+  if (failed) {
+    setStatus('bad', `Couldn’t read your saved progress (${failed.message}), ` +
+      'so this starts from the first change. Click Select to start.');
+  } else {
+    setStatus('', completed.size
+      ? `Welcome back: ${completed.size} of ${changes.length} completed. Click Select to continue.`
+      : 'Click Select to start with this change (the last in the doc).');
+  }
 }
 
 $('file').addEventListener('change', () => {
@@ -309,7 +341,6 @@ $('completed').onchange = () => {
   save();
 };
 
-run('mdToGdocsWarmUp').catch(err => setStatus('bad', err.message));
 </script>
 </body>
 </html>
