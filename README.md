@@ -34,6 +34,34 @@ the "Doc tools" menu may vanish. If you need both, merge them into one
 To update a tool, replace its files' contents again, save, and reload
 the doc.
 
+## Installing everything in a doc
+
+To install all the tools at once (or update them), in the Google Doc
+choose Extensions > Apps Script. Then, for each file below, in order:
+
+1. Run its command (in this directory), which copies the file to the
+   clipboard.
+2. In the Apps Script editor, add a file of the kind and name shown
+   (+ > Script or + > HTML; type just the name, since the editor adds
+   the extension). To update a file, click its name instead.
+   Note that the Google docs extension for scripts is `.gs` even though
+   we use `.js` locally.
+3. Click in the file's contents, press Ctrl+A to select them all, and
+   press Ctrl+V to replace them.
+
+```sh
+wl-copy --type text/plain < DocToolsMenu.js       # Script: DocToolsMenu (.gs)
+wl-copy --type text/plain < MdToGdocs.js          # Script: MdToGdocs (.gs)
+wl-copy --type text/plain < MdToGdocsSidebar.html # HTML:   MdToGdocsSidebar
+wl-copy --type text/plain < linkifyCitations.js   # Script: linkifyCitations
+```
+
+Then save (Ctrl+S), and reload the doc; the "Doc tools" menu appears.
+The `--type text/plain` makes sure the HTML file is pasted as its
+source, not rendered. These use `wl-copy` (Wayland); on X11, use
+`xclip -selection clipboard -t text/plain < FILE` instead, and on macOS,
+`pbcopy < FILE`.
+
 ## md-to-gdocs
 
 You edit a Markdown file that was generated from a Google Doc (using
@@ -72,6 +100,9 @@ It has two parts:
   Vulnerabilities Using AI" guide).
 
 ### Installing it in a doc (once per doc)
+
+[Installing everything](#installing-everything-in-a-doc) has commands to
+copy each file. To install just this tool:
 
 1. In the Google Doc, choose Extensions > Apps Script.
 2. Add a script file (+ > Script) named `MdToGdocs`, and replace its
@@ -245,6 +276,9 @@ It expects:
   `as shown in [Smith2026]`. The link goes on the ID, not the brackets.
 
 ### Installing it in a doc (once per doc)
+
+[Installing everything](#installing-everything-in-a-doc) has commands to
+copy each file. To install just this tool:
 
 1. In the Google Doc, choose Extensions > Apps Script.
 2. Add a script file (+ > Script) named `linkifyCitations`, and replace
