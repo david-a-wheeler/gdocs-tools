@@ -7,7 +7,7 @@
 // Every global name starts with "mdToGdocs", since all files in an Apps
 // Script project share one namespace.
 //
-// SPDX-FileCopyrightText: OpenSSF project contributors
+// SPDX-FileCopyrightText: David A. Wheeler and contributors
 // SPDX-License-Identifier: MIT
 
 /**

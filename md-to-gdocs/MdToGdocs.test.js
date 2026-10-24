@@ -3,7 +3,7 @@
 // the change list from real Markdown edits, and a fake doc built from
 // the same Markdown must give back exactly each change's old text.
 //
-// SPDX-FileCopyrightText: OpenSSF project contributors
+// SPDX-FileCopyrightText: David A. Wheeler and contributors
 // SPDX-License-Identifier: MIT
 
 'use strict';

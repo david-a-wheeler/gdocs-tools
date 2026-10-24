@@ -12,7 +12,7 @@ standard input (or from a file) and writes the change list as JSON:
     git diff -U100000 BASE -- FILE.md | python3 -I md_to_gdocs.py > ,changes.json
 """
 
-# SPDX-FileCopyrightText: OpenSSF project contributors
+# SPDX-FileCopyrightText: David A. Wheeler and contributors
 # SPDX-License-Identifier: MIT
 
 import hashlib
