@@ -80,10 +80,14 @@
       italics are fine), has no warnings, and either stays within one
       paragraph or only inserts new paragraphs, and marks it completed.
       These are <b>direct edits, not suggestions</b>, even in Suggesting
-      mode. To undo them, use File &gt; Version history.</p>
+      mode. To undo them, use File &gt; Version history. Use this before
+      pasting any changes as suggestions: a pending suggestion can keep
+      a change near it from being found.</p>
     <button id="apply" title="Apply all the incomplete plain changes at once, as direct edits, not suggestions (it asks first)">Directly apply plain changes</button>
     <div id="confirm" hidden>
-      <p>Apply them directly to the doc, as edits, not suggestions?</p>
+      <p>Apply them directly to the doc, as edits, not suggestions? First,
+        I recommend naming a version (File &gt; Version history &gt; Name
+        current version), so you can easily go back to it.</p>
       <button id="applyYes" title="Apply them now, as direct edits">Apply them directly</button>
       <button id="applyNo" title="Don’t apply anything">Cancel</button>
     </div>

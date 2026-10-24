@@ -33,6 +33,7 @@ class El {
   getChildIndex(c) { return this.children.indexOf(c); }
   getText() { return this.children.map(c => c.getText()).join(''); }
   getHeading() { return this.heading || 'NORMAL'; }
+  getPositionedImages() { return this.positioned || []; }
   copy() {
     const c = new El(this.type, this.children.map(k => k.copy()));
     c.heading = this.heading;
@@ -134,6 +135,7 @@ function fakeDoc(children) {
   const body = new Body(children);
   const doc = {
     cursor: null, selection: null,
+    saveAndClose() {},
     getBody: () => body,
     getTabs: () => [{ getChildTabs: () => [] }],
     newPosition: (el, offset) => ({ el, offset }),
@@ -157,6 +159,7 @@ function load(doc) {
   const sandbox = {
     DocumentApp: { ElementType: T, ParagraphHeading: { NORMAL: 'NORMAL' },
       getActiveDocument: () => doc },
+    LockService: { getDocumentLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
     PropertiesService: {
       getDocumentProperties: () => ({
         getProperty: k => (k in props ? props[k] : null),
@@ -471,12 +474,15 @@ test('new paragraphs copy their paragraph, except for its formatting', () => {
   assert.deepStrictEqual(texts(doc), ['End', 'New.', 'After.']);
   const nt = doc.getBody().children[1].children[0];
   assert.deepStrictEqual(nt.fmt.map(f => [f.font, f.bold]), Array(4).fill(['Arial', false]));
-  // A paragraph that starts with bold, or a heading, is refused.
+  // A paragraph that starts with bold, a heading, or one with a floating
+  // image (which a copy would duplicate) is refused.
   t = new Text('End');
   t.setBold(0, 0, true);
   const h = para('End');
   h.heading = 'HEADING';
-  for (const [p, why] of [[para(t), /formatted/], [h, /heading/]]) {
+  const img = para('End');
+  img.positioned = [{}];
+  for (const [p, why] of [[para(t), /formatted/], [h, /heading/], [img, /image/]]) {
     doc = fakeDoc([p]);
     assert.match(apply(load(doc), [c]).skipped[0].message, why);
     assert.deepStrictEqual(texts(doc), ['End']);

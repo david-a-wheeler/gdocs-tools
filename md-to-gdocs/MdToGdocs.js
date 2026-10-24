@@ -292,7 +292,10 @@ function mdToGdocsInsertParas_(body, a, lines) {
       P.getHeading() !== DocumentApp.ParagraphHeading.NORMAL) {
     throw new Error('it’s next to a heading, list, table, or other special paragraph');
   }
-  if (P.getNumChildren() !== 1 || P.getChild(0).getType() !== T.TEXT) {
+  // A copy would also copy a floating ("wrap text") image, which isn't
+  // one of the paragraph's children.
+  if (P.getNumChildren() !== 1 || P.getChild(0).getType() !== T.TEXT ||
+      P.getPositionedImages().length) {
     throw new Error('it’s next to an image or other non-text item');
   }
   const t = P.getChild(0).asText();
@@ -332,27 +335,42 @@ function mdToGdocsInsertParas_(body, a, lines) {
 // completed in your saved progress. Returns { applied: [ids], skipped:
 // [{ id, message }], tried (how many changes it got to) }; the sidebar
 // calls again with the rest.
+//
+// Only one run at a time: a run the sidebar gave up waiting for may
+// still be going. Each run opens the doc after taking the lock, and
+// saves it before letting the next one in, so the next one sees its
+// edits (and won't, e.g., insert the same paragraphs again).
 function mdToGdocsApplyPlain(changes, budget) {
-  const t0 = Date.now();
-  const stats = { calls: 0, ms: 0 };
-  const result = { applied: [], skipped: [], tried: 0 };
-  const body = mdToGdocsDoc_().getBody();
-  for (const c of changes) {
-    if (result.tried && Date.now() - t0 >= budget) break;
-    result.tried++;
-    try {
-      mdToGdocsApplyOne_(body, c, stats);
-      result.applied.push(c.id);
-    } catch (e) {
-      result.skipped.push({ id: c.id, message: e.message });
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error('an earlier run is still applying changes; try again in a minute');
+  }
+  try {
+    const t0 = Date.now();
+    const stats = { calls: 0, ms: 0 };
+    const result = { applied: [], skipped: [], tried: 0 };
+    const doc = mdToGdocsDoc_();
+    const body = doc.getBody();
+    for (const c of changes) {
+      if (result.tried && Date.now() - t0 >= budget) break;
+      result.tried++;
+      try {
+        mdToGdocsApplyOne_(body, c, stats);
+        result.applied.push(c.id);
+      } catch (e) {
+        result.skipped.push({ id: c.id, message: e.message });
+      }
     }
+    doc.saveAndClose();
+    if (result.applied.length) {
+      const progress = mdToGdocsGetProgress();
+      progress.completed = [...new Set([...progress.completed, ...result.applied])];
+      mdToGdocsSetProgress(progress);
+    }
+    return result;
+  } finally {
+    lock.releaseLock();
   }
-  if (result.applied.length) {
-    const progress = mdToGdocsGetProgress();
-    progress.completed = [...new Set([...progress.completed, ...result.applied])];
-    mdToGdocsSetProgress(progress);
-  }
-  return result;
 }
 
 // Your progress through a change list ("Completed" marks and the

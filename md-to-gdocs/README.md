@@ -121,7 +121,14 @@ formatting, and one next to a heading, list item, table, or image.
 
 It marks each one it applies Completed, and then reports how many it
 applied and why it skipped any others; do those as usual. It asks
-before it starts. To undo it, use File > Version history.
+before it starts. To undo it, use File > Version history; I recommend
+naming a version first (File > Version history > Name current version).
+
+Use it before pasting any changes as suggestions. A paragraph with a
+pending suggestion looks like neither its old nor its new text to Apps
+Script, so a change next to one may not be found. Only one run applies
+changes at a time, so clicking it again while a run is still going is
+safe.
 
 It's safe to run again: an applied change's old text is gone, so it
 isn't found again, and an insertion whose new paragraphs are already
