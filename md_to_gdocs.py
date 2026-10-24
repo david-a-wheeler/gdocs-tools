@@ -706,20 +706,21 @@ def _matches(span, text):
     return found
 
 
-def _locate(paras, span, k, at):
-    """Does span find paragraph k, with its middle at offsets at, and
-    nothing else? With a landmark, the first match after it must be."""
+def _locate(texts, span, k, at):
+    """Does span find paragraph k of a doc's paragraph texts, with its
+    middle at offsets at, and nothing else? With a landmark, the first
+    match after it must be."""
     if span['landmark'] is not None:
         lm = span['landmark']
-        lk = [i for i, p in enumerate(paras) if _matches(lm, p.text)]
+        lk = [i for i, t in enumerate(texts) if _matches(lm, t)]
         if len(lk) != 1:
             return False
-        for i in range(lk[0] + 1, len(paras)):
-            found = _matches(span, paras[i].text)
+        for i in range(lk[0] + 1, len(texts)):
+            found = _matches(span, texts[i])
             if found:
                 return (i, found[0]) == (k, at)
         return False
-    hits = [(i, f) for i, p in enumerate(paras) for f in _matches(span, p.text)]
+    hits = [(i, f) for i, t in enumerate(texts) for f in _matches(span, t)]
     return hits == [(k, at)]
 
 
@@ -734,12 +735,18 @@ def _word_cuts(atoms, lo, hi):
     return cuts
 
 
-def find_span(paras, k, a, b, keep_start=False, keep_end=False):
+def find_span(paras, k, a, b, keep_start=False, keep_end=False, now=None):
     """A span that finds the text from offset a to b in paragraph k,
-    with as little context as makes it unique in paras (the old doc).
-    keep_start or keep_end ties it to the paragraph's start or end (a
-    span for one end of a change across paragraphs). Returns None if
-    nothing, not even a landmark, makes it unique."""
+    with as little context as makes it unique in paras (the old doc),
+    and also in now (the doc's paragraph texts when the change is made),
+    if given. keep_start or keep_end ties it to the paragraph's start or
+    end (a span for one end of a change across paragraphs). Returns None
+    if nothing, not even a landmark, makes it unique."""
+    docs = [[p.text for p in paras]] + ([now] if now is not None else [])
+
+    def unique(span):
+        return all(_locate(texts, span, k, (a, b)) for texts in docs)
+
     p = paras[k]
     text = p.text
     # Context boundaries a word at a time: before grows back from a,
@@ -774,7 +781,7 @@ def find_span(paras, k, a, b, keep_start=False, keep_end=False):
     while True:
         lo, hi = befores[bi], afters[ai]
         span = _span(text[lo:a], text[a:b], text[b:hi], lo == 0, hi == len(text))
-        if _locate(paras, span, k, (a, b)):
+        if unique(span):
             return span
         if bi == len(befores) - 1 and ai == len(afters) - 1:
             break
@@ -792,7 +799,7 @@ def find_span(paras, k, a, b, keep_start=False, keep_end=False):
         if sum(bool(_matches(lm, r.text)) for r in paras) != 1:
             continue
         span['landmark'] = lm
-        if _locate(paras, span, k, (a, b)):
+        if unique(span):
             return span
         break
     return None
@@ -846,16 +853,35 @@ def change_list(diff):
     """The change list the sidebar loads: changes(diff), each with spans
     to find where it goes in the doc (see find_span())."""
     paras, found = changes(diff)
+    # The doc's text as each change is made: the changes after it in the
+    # doc are done, so their new text can repeat its context (e.g., quiz
+    # feedback that quotes the question). Paragraphs up to the change
+    # are still the old ones, so its offsets still hold.
+    doc = '\n'.join(p.text for p in paras)
+    at = [0]
+    for p in paras:
+        at.append(at[-1] + len(p.text) + 1)
     out = []
     for c in found:
         (sk, sa), (ek, eb) = c.start, c.end
+        now = doc.split('\n') if doc is not None else None
+
+        def span(k, a, b, **keep):
+            # If no span is unique both before and as the change is
+            # made, fall back to one unique before.
+            return (find_span(paras, k, a, b, now=now, **keep) or
+                    find_span(paras, k, a, b, **keep))
         if sk == ek:
-            start, end = find_span(paras, sk, sa, eb), None
+            start, end = span(sk, sa, eb), None
             ok = start is not None
         else:
-            start = find_span(paras, sk, sa, len(paras[sk].text), keep_end=True)
-            end = find_span(paras, ek, 0, eb, keep_start=True)
+            start = span(sk, sa, len(paras[sk].text), keep_end=True)
+            end = span(ek, 0, eb, keep_start=True)
             ok = start is not None and end is not None
+        if doc is not None and doc[at[sk] + sa:at[ek] + eb] == c.old_text:
+            doc = doc[:at[sk] + sa] + c.new_text + doc[at[ek] + eb:]
+        else:
+            doc = None  # can't tell what the doc will be; stop checking
         flags = list(c.flags)
         if not ok and 'not found' not in flags:
             flags.append('not found')

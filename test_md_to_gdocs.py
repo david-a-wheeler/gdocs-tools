@@ -374,6 +374,17 @@ class FindSpanTest(unittest.TestCase):
 
 
 class ChangeListTest(unittest.TestCase):
+    def test_context_unique_after_later_changes(self):
+        # The new paragraph is inserted first (it's later in the doc),
+        # and repeats the edit's usual context, "it to … in it".
+        result = change_list(diff('So ask it to "find bugs" in it now.\n\nEnd.\n',
+                                  'So ask it to “find bugs” in it now.\n\nEnd.\n\n'
+                                  'Then ask it to “find bugs” in it later.\n'))
+        first, second = result['changes']
+        self.assertEqual((first['kind'], second['kind']), ('insert', 'within'))
+        self.assertIn(pattern('now'), second['start']['after'])
+        self.assertEqual(second['flags'], [])
+
     def test_json_and_command_line(self):
         d = diff('Keep this. Old end.\n\nOld start. Keep that.\n',
                  'Keep this. New text. Keep that.\n')

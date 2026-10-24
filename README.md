@@ -197,6 +197,9 @@ most changes for you. It applies, as **direct edits, not suggestions**
 Like every change, each one's place in the doc is unique: its text is
 there exactly once, or, when its text repeats (e.g., "Answer: A"), it's
 the first match after a nearby paragraph that's there exactly once.
+md_to_gdocs.py makes that true both before any change and after the
+changes later in the doc are done, so new text (e.g., feedback quoting
+a quiz question) doesn't make an earlier change's text repeat.
 
 Each new paragraph is a copy of the paragraph it's inserted next to,
 with its text replaced, so it gets that paragraph's style, as when a
