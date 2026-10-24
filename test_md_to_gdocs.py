@@ -242,6 +242,23 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual(c.old_text, 'Old end.\n\nOld start')
         self.assertEqual(c.new_html, 'New text')
 
+    def test_reworded_paragraphs_are_changes_within_each(self):
+        # Too reworded to pair as edits, so one change across them at
+        # first; but they pair up kind by kind, so no break need change.
+        paras, found = changes(diff(
+            'Q?\n\nC) An agent needs no data, while a bot needs datasets\\\n'
+            'D) A bot can perceive it, while an agent can\'t\n\nEnd.\n',
+            'Q?\n\nC) An agent is built without data, while a bot is trained on datasets\\\n'
+            'D) A bot can change it, while an agent can’t\n\nEnd.\n'))
+        self.assertEqual([(c.kind, c.old_text, c.new_text) for c in found], [
+            ('within', "perceive it, while an agent can'", 'change it, while an agent can’'),
+            ('within', 'needs no data, while a bot needs', 'is built without data, while a bot is trained on')])
+
+    def test_paragraphs_of_other_kinds_stay_one_change(self):
+        _, c = one_change('Keep.\n\nThe first old paragraph was here.\n\n## A heading\n\nKeep too.\n',
+                          'Keep.\n\nSomething else entirely now.\n\nAnd a new one too, in fact.\n\nKeep too.\n')
+        self.assertEqual((c.kind, c.flags), ('across', ['style']))
+
     def test_formatting_only(self):
         _, c = one_change('Make this bold.\n', 'Make **this** bold.\n')
         self.assertEqual((c.old_text, c.new_html), ('this', '<b>this</b>'))

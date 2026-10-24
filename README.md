@@ -194,6 +194,12 @@ most changes for you. It applies, as **direct edits, not suggestions**
   paragraph. It doesn't replace text with paragraphs or remove
   paragraph breaks.
 
+When you reword several paragraphs in a row so heavily that
+md_to_gdocs.py can't tell they're the same paragraphs, edited, it
+still makes one change within each, as long as the old and new
+paragraphs pair up in order, kind by kind (e.g., two quiz options).
+Then each paragraph keeps its style, and the direct apply can do them.
+
 Like every change, each one's place in the doc is unique: its text is
 there exactly once, or, when its text repeats (e.g., "Answer: A"), it's
 the first match after a nearby paragraph that's there exactly once.

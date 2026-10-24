@@ -653,6 +653,24 @@ def changes(diff):
             options.append(split)
         result += min(options, key=lambda cs: (
             sum(len(c.old_text) + len(c.new_text) for c in cs), len(cs)))
+
+    def per_paragraph(c):
+        """A change across paragraphs as one change within each, when
+        its old and new paragraphs pair up kind by kind (e.g., two quiz
+        options, both reworded), so each keeps its style and no break
+        changes; otherwise c. The doc can apply those directly."""
+        if c.kind != 'across':
+            return [c]
+        olds = range(c.start[0], c.end[0] + 1)
+        news = range(new_at[c.new_lines[0]], new_at[c.new_lines[1]] + 1)
+        if len(olds) != len(news) or any(
+                old[i].kind == 'unsupported' or (old[i].kind, old[i].level, old[i].ordered) !=
+                (new[j].kind, new[j].level, new[j].ordered) for i, j in zip(olds, news)):
+            return [c]
+        parts = [p for p in (_change(old, new, i, j, [old[i]], [new[j]])
+                             for i, j in zip(olds, news)) if p]
+        return [p for p, _ in parts] if all(ok for _, ok in parts) else [c]
+    result = [p for c in result for p in per_paragraph(c)]
     result.sort(key=lambda c: (c.start, c.end), reverse=True)
     return old, result
 

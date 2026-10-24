@@ -489,6 +489,13 @@ test('new paragraphs copy their paragraph, except for its formatting', () => {
   }
 });
 
+test('directly apply reworded paragraphs, one change within each', () => {
+  checkApply('Q?\n\nC) An agent needs no data, while a bot needs datasets\\\n' +
+             'D) A bot can perceive it, while an agent can\'t\n\nEnd.\n',
+             'Q?\n\nC) An agent is built *without* data, while a bot is trained on datasets\\\n' +
+             'D) A bot can change it, while an agent can’t\n\nEnd.\n');
+});
+
 test('directly applying stops when its time is up, after at least one', () => {
   const doc = fakeDoc([para('aaa'), para('bbb')]);
   const c = (id, middle) => ({ id, start: { before: '', middle, after: '', para_start: true,
