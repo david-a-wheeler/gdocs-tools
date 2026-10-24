@@ -13,8 +13,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const TOOLS = {
-  mdToGdocs: '../md-to-gdocs/MdToGdocs.js',
-  linkify: '../linkify/linkifyCitations.js',
+  mdToGdocs: 'MdToGdocs.js',
+  linkify: 'linkifyCitations.js',
 };
 
 // Run onOpen() with the menu file and the named tools loaded; returns
