@@ -40,7 +40,8 @@ To install all the tools at once (or update them), in the Google Doc
 choose Extensions > Apps Script. Then, for each file below, in order:
 
 1. Run its command (in this directory), which copies the file to the
-   clipboard.
+   clipboard. Here we show `wl-copy`, the command for copying a file into
+   the clipboard on Linux systems using Wayland.
 2. In the Apps Script editor, add a file of the kind and name shown
    (+ > Script or + > HTML; type just the name, since the editor adds
    the extension). To update a file, click its name instead.
@@ -50,17 +51,22 @@ choose Extensions > Apps Script. Then, for each file below, in order:
    press Ctrl+V to replace them.
 
 ```sh
-wl-copy --type text/plain < DocToolsMenu.js       # Script: DocToolsMenu (.gs)
-wl-copy --type text/plain < MdToGdocs.js          # Script: MdToGdocs (.gs)
-wl-copy --type text/plain < MdToGdocsSidebar.html # HTML:   MdToGdocsSidebar
-wl-copy --type text/plain < linkifyCitations.js   # Script: linkifyCitations
+wl-copy < DocToolsMenu.js        # Script: DocToolsMenu
+wl-copy < MdToGdocs.js           # Script: MdToGdocs
+wl-copy < MdToGdocsSidebar.html  # HTML:   MdToGdocsSidebar
+wl-copy < linkifyCitations.js    # Script: linkifyCitations
 ```
 
 Then save (Ctrl+S), and reload the doc; the "Doc tools" menu appears.
-The `--type text/plain` makes sure the HTML file is pasted as its
-source, not rendered. These use `wl-copy` (Wayland); on X11, use
-`xclip -selection clipboard -t text/plain < FILE` instead, and on macOS,
-`pbcopy < FILE`.
+
+These commands use `wl-copy` (Linux with Wayland). Elsewhere, replace
+`wl-copy < FILE` with:
+
+* Linux with X11: `xclip -selection clipboard < FILE`
+* macOS: `pbcopy < FILE`
+* Windows (PowerShell): `Get-Content -Raw -Encoding UTF8 FILE | Set-Clipboard`.
+  Avoid `clip < FILE`, which can garble the files' non-ASCII
+  characters (e.g., curly quotes).
 
 ## md-to-gdocs
 
