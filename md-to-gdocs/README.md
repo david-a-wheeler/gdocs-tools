@@ -89,10 +89,45 @@ doc.
      press the **Delete key**: Ctrl+V of nothing does nothing in Docs.
 
    Check the result, then click **Done**: it marks the change
-   Completed and goes to the next one that isn't.
+   Completed and goes to the next one that isn't. "Next incomplete"
+   and "Previous incomplete" skip completed changes.
 7. Close the sidebar whenever you like. When you reopen it, paste the
    same change list again; it remembers which changes are completed and
    where you were.
+
+### Directly applying plain changes
+
+If you don't need suggestions, "Directly apply plain changes" does
+most changes for you. It applies, as **direct edits, not suggestions**
+(even in Suggesting mode), every incomplete change that:
+
+* is plain text, except for bold and italics (no links, code,
+  strikethrough, headings, or lists);
+* has no warnings; and
+* either stays within one paragraph, or only inserts new paragraphs
+  (e.g., a quiz's feedback) at the start or end of an ordinary
+  paragraph. It doesn't replace text with paragraphs or remove
+  paragraph breaks.
+
+Like every change, each one's place in the doc is unique: its text is
+there exactly once, or, when its text repeats (e.g., "Answer: A"), it's
+the first match after a nearby paragraph that's there exactly once.
+
+Each new paragraph is a copy of the paragraph it's inserted next to,
+with its text replaced, so it gets that paragraph's style, as when a
+paste splits a paragraph. It skips a change whose text is in or right
+next to formatted text, since the new text could pick up that
+formatting, and one next to a heading, list item, table, or image.
+
+It marks each one it applies Completed, and then reports how many it
+applied and why it skipped any others; do those as usual. It asks
+before it starts. To undo it, use File > Version history.
+
+It's safe to run again: an applied change's old text is gone, so it
+isn't found again, and an insertion whose new paragraphs are already
+there is skipped.
+
+### Notes
 
 Changes go from the end of the doc to the start. A paragraph with a
 pending suggestion looks like neither its old nor its new text to Apps

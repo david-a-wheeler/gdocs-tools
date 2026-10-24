@@ -44,7 +44,7 @@
   <label class="h">Change list (made by md_to_gdocs.py): paste it here
     <textarea id="pasted" rows="4"
       placeholder="e.g., run wl-copy < ,changes.json, then paste"></textarea></label>
-  <button id="usePasted">Load</button>
+  <button id="usePasted" title="Read the change list pasted above, and your saved progress through it">Load</button>
   <details>
     <summary>Or choose the file (may not work in your browser)</summary>
     <input type="file" id="file" accept=".json,application/json">
@@ -52,25 +52,43 @@
 </div>
 
 <div id="main" hidden>
-  <div id="heading"></div>
+  <div id="heading" title="Which change this is (changes go from the end of the doc to the start), the lines of the Markdown it changes, and how many changes are completed"></div>
   <div>
-    <button id="prev">Previous</button>
-    <button id="select">Select</button>
-    <button id="next">Next</button>
-    <button id="done">Done</button>
+    <button id="prev" title="Go to the previous change, and select it in the doc unless it’s completed">Previous</button>
+    <button id="select" title="Copy this change’s new text to the clipboard, and select its old text in the doc (or put the cursor where it goes)">Select</button>
+    <button id="next" title="Go to the next change, and select it in the doc unless it’s completed">Next</button>
+    <button id="done" title="Mark this change completed, and go to the next incomplete one">Done</button>
   </div>
-  <label><input type="checkbox" id="completed"> Completed</label>
-  <div id="status"></div>
-  <div id="flags"></div>
-  <label class="h">Text before</label>
+  <div>
+    <button id="prevOpen" title="Go to the previous change that isn’t completed, skipping completed ones">Previous incomplete</button>
+    <button id="nextOpen" title="Go to the next change that isn’t completed, skipping completed ones">Next incomplete</button>
+  </div>
+  <label title="Whether this change is done. Uncheck it to redo the change."><input type="checkbox" id="completed"> Completed</label>
+  <div id="status" title="What just happened, or what to do next"></div>
+  <div id="flags" title="Warnings about this change: parts you need to check or do by hand"></div>
+  <label class="h" title="The doc’s text just before the change, to help you find it; ¶ marks a paragraph break">Text before</label>
   <div id="before" class="box context"></div>
-  <label class="h">Text to change</label>
+  <label class="h" title="The old text this change replaces or deletes">Text to change</label>
   <div id="old" class="box"></div>
-  <label class="h">Replace with</label>
+  <label class="h" title="The new text, formatted, that Select puts on the clipboard">Replace with</label>
   <div id="preview" class="box"></div>
-  <label class="h">Text after</label>
+  <label class="h" title="The doc’s text just after the change; ¶ marks a paragraph break">Text after</label>
   <div id="after" class="box context"></div>
-  <p><button id="reload">Load another change list</button></p>
+  <div id="direct">
+    <label class="h">Directly apply plain changes</label>
+    <p>Applies every incomplete change that's plain text (bold and
+      italics are fine), has no warnings, and either stays within one
+      paragraph or only inserts new paragraphs, and marks it completed.
+      These are <b>direct edits, not suggestions</b>, even in Suggesting
+      mode. To undo them, use File &gt; Version history.</p>
+    <button id="apply" title="Apply all the incomplete plain changes at once, as direct edits, not suggestions (it asks first)">Directly apply plain changes</button>
+    <div id="confirm" hidden>
+      <p>Apply them directly to the doc, as edits, not suggestions?</p>
+      <button id="applyYes" title="Apply them now, as direct edits">Apply them directly</button>
+      <button id="applyNo" title="Don’t apply anything">Cancel</button>
+    </div>
+  </div>
+  <p><button id="reload" title="Go back to load a different change list (your progress through this one is kept)">Load another change list</button></p>
 </div>
 
 <script>
@@ -101,19 +119,22 @@ const TRIES = 3;
 let queue = Promise.resolve();
 let attempt = 1;  // shown while waiting
 let lastTries = 1;  // how many tries the last call took
-function once(fn, args) {
+function once(fn, args, timeout) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error(`no answer from Apps Script in ${TIMEOUT / 1000} s`)), TIMEOUT);
+      () => reject(new Error(`no answer from Apps Script in ${timeout / 1000} s`)), timeout);
     google.script.run
       .withSuccessHandler(v => { clearTimeout(timer); resolve(v); })
       .withFailureHandler(e => { clearTimeout(timer); reject(e); })[fn](...args);
   });
 }
 function run(fn, ...args) {
+  return call(fn, args, TRIES, TIMEOUT);
+}
+function call(fn, args, tries, timeout) {
   const tryFrom = n => {
     attempt = n;
-    return once(fn, args).catch(err => (n < TRIES ? tryFrom(n + 1) : Promise.reject(err)));
+    return once(fn, args, timeout).catch(err => (n < tries ? tryFrom(n + 1) : Promise.reject(err)));
   };
   const go = () => tryFrom(1).finally(() => { lastTries = attempt; attempt = 1; });
   const p = queue.then(go, go);
@@ -161,7 +182,8 @@ function show() {
   const done = completed.has(c.id);
   $('heading').textContent = `Change ${current + 1} of ${changes.length} ` +
     `(lines ${c.old_lines[0]}-${c.old_lines[1]})` + (c.new_html ? '' : ': DELETE') +
-    (done ? ', completed' : '');
+    (done ? ', completed' : '') +
+    ` [${changes.filter(x => completed.has(x.id)).length} of ${changes.length} completed]`;
   $('completed').checked = done;
   $('flags').textContent = c.flags.map(f => FLAG_HELP[f] || f).join(' ');
   // Mark each paragraph break with "¶", so empty paragraphs show.
@@ -270,14 +292,71 @@ function go(n) {
   });
 }
 
-function nextOpen(from) {
-  for (let k = from + 1; k < changes.length; k++) {
-    if (!completed.has(changes[k].id)) return k;
-  }
-  for (let k = 0; k <= from; k++) {
-    if (!completed.has(changes[k].id)) return k;
+// The next incomplete change after from, going by step (1 or -1) and
+// wrapping around to from itself, or -1 if there's none.
+function nextOpen(from, step = 1) {
+  const n = changes.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (((from + step * k) % n) + n) % n;
+    if (!completed.has(changes[i].id)) return i;
   }
   return -1;
+}
+
+// Go to the next or previous incomplete change.
+function goOpen(step) {
+  const k = nextOpen(current, step);
+  if (k < 0) setStatus('ok', 'All changes completed.');
+  else if (k === current) setStatus('', 'This is the only incomplete change.');
+  else go(k);
+}
+
+// Apply the plain incomplete changes directly; Apps Script decides which
+// are plain. Each call works for up to APPLY_BUDGET ms (plus Apps
+// Script's startup), and the sidebar calls again with the rest. Calls
+// aren't retried: one that got no answer may have applied changes
+// anyway, so afterward the sidebar rereads your saved progress, where
+// Apps Script marks what it applied.
+const APPLY_BUDGET = 15000;
+const APPLY_TIMEOUT = 60000;
+
+async function applyPlain() {
+  $('confirm').hidden = true;
+  const controls = document.querySelectorAll('#main button, #main input');
+  controls.forEach(b => { b.disabled = true; });
+  let rest = changes.filter(c => !completed.has(c.id));
+  let applied = 0;
+  const why = {};  // how many changes weren't applied, by reason
+  let failed = null;
+  try {
+    while (rest.length) {
+      const stop = waiting(`Applying plain changes directly: ${applied} applied`);
+      const r = await call('mdToGdocsApplyPlain', [rest, APPLY_BUDGET], 1, APPLY_TIMEOUT)
+        .finally(stop);
+      r.applied.forEach(id => completed.add(id));
+      applied += r.applied.length;
+      r.skipped.forEach(s => { why[s.message] = (why[s.message] || 0) + 1; });
+      rest = rest.slice(r.tried);
+    }
+  } catch (err) {
+    failed = err;
+  }
+  try {
+    const p = await run('mdToGdocsGetProgress');
+    const ids = new Set(changes.map(c => c.id));
+    p.completed.filter(id => ids.has(id)).forEach(id => completed.add(id));
+  } catch (err) {
+    failed = failed || err;
+  }
+  lastSaved = '';
+  controls.forEach(b => { b.disabled = false; });
+  show();
+  const reasons = Object.entries(why).map(([m, n]) => `${n} because ${m}`).join('; ');
+  setStatus(failed ? 'bad' : 'ok', `Applied ${applied} changes directly.` +
+    (reasons ? ` Not applied: ${reasons}.` : '') +
+    (failed ? ` Stopped by an error: ${failed.message}.` : '') +
+    ` Incomplete changes left: ${changes.filter(c => !completed.has(c.id)).length}; ` +
+    'use Next incomplete, Select, and Ctrl+V for them.');
 }
 
 async function loadList(text) {
@@ -352,6 +431,11 @@ $('done').onclick = () => {
     go(k);
   }
 };
+$('prevOpen').onclick = () => goOpen(-1);
+$('nextOpen').onclick = () => goOpen(1);
+$('apply').onclick = () => { $('confirm').hidden = false; };
+$('applyYes').onclick = applyPlain;
+$('applyNo').onclick = () => { $('confirm').hidden = true; };
 $('completed').onchange = () => {
   const id = changes[current].id;
   if ($('completed').checked) completed.add(id); else completed.delete(id);

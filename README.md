@@ -84,13 +84,24 @@ and a Google Doc you can edit.
    the selection, then press Ctrl+V (or, for a deletion, the Delete
    key). Check the result, and click Done.
 
+If you don't need suggestions, first click "Directly apply plain
+changes". It applies every change that's plain text (bold and italics
+are fine), has no warnings, and either stays within one paragraph or
+only inserts new paragraphs (e.g., quiz feedback), as direct edits
+(not suggestions), and marks them completed. Then use "Next
+incomplete" to do the rest as above. To undo it, use File > Version
+history.
+
 You can close the sidebar any time; when you reopen it and paste the
 same change list, it remembers where you were.
 
 ### Key limitations
 
-* **You do each paste.** Neither Apps Script nor the Google Docs API
-  can create suggestions, so md-to-gdocs can't apply changes by itself.
+* **You do each paste, for suggestions.** Neither Apps Script nor the
+  Google Docs API can create suggestions, so md-to-gdocs can't create
+  them by itself. It can directly apply only plain changes (bold and
+  italics are fine) that stay within a paragraph or insert new
+  paragraphs.
   Each change takes a few seconds, so a large edit may take a while.
 * **The Markdown must come from the doc.** It must be Google's Markdown
   export of the doc, as is or cleaned up, and BASE and your edit must
