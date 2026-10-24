@@ -1,4 +1,8 @@
 // Google apps script
+//
+// SPDX-FileCopyrightText: David A. Wheeler and contributors
+// SPDX-License-Identifier: MIT
+
 function linkifyCitations() { // Add hyperlinks from citations per bibliography
   // SAFE TO RERUN: Will replace URLs per the bibliography
   const doc = DocumentApp.getActiveDocument();
@@ -72,8 +76,13 @@ function linkifyCitations() { // Add hyperlinks from citations per bibliography
 
       // Stop once we reach the Bibliography section itself: only the
       // *rest* of the document should get links, not the entries where
-      // the [ID] sits right next to its own URL already.
-      const paragraphIndex = body.getChildIndex(textElement.getParent());
+      // the [ID] sits right next to its own URL already. Text in a
+      // table is nested deeper, so climb to the body's own child.
+      let topLevel = textElement.getParent();
+      while (topLevel.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+        topLevel = topLevel.getParent();
+      }
+      const paragraphIndex = body.getChildIndex(topLevel);
       if (paragraphIndex >= bibliographyIndex) break;
 
       const startOffset = found.getStartOffset() + 1; // Start inside '['

@@ -1,11 +1,13 @@
 // md-to-gdocs: the Apps Script side. Paste this into the doc's Apps
 // Script project (Extensions > Apps Script) as a file named MdToGdocs,
-// next to MdToGdocsSidebar.html. It only finds text and sets your cursor
-// or selection; the sidebar puts the new text on the clipboard, and you
-// paste it. Everything else was worked out locally by md_to_gdocs.py.
+// next to MdToGdocsSidebar.html and the menu file, DocToolsMenu.js. It
+// only finds text and sets your cursor or selection; the sidebar puts
+// the new text on the clipboard, and you paste it. Everything else was
+// worked out locally by md_to_gdocs.py.
 //
 // Every global name starts with "mdToGdocs", since all files in an Apps
-// Script project share one namespace.
+// Script project share one namespace. The menu file has the project's
+// onOpen(), which adds an item for mdToGdocsShowSidebar.
 //
 // SPDX-FileCopyrightText: David A. Wheeler and contributors
 // SPDX-License-Identifier: MIT
@@ -13,12 +15,6 @@
 /**
  * @OnlyCurrentDoc
  */
-
-function onOpen() {
-  DocumentApp.getUi().createMenu('Markdown changes')
-    .addItem('Open sidebar', 'mdToGdocsShowSidebar')
-    .addToUi();
-}
 
 function mdToGdocsShowSidebar() {
   const html = HtmlService.createHtmlOutputFromFile('MdToGdocsSidebar')

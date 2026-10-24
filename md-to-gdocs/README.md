@@ -38,18 +38,23 @@ It has two parts:
    contents with `MdToGdocs.js`.
 3. Add an HTML file (+ > HTML) named exactly `MdToGdocsSidebar`, and
    replace its contents with `MdToGdocsSidebar.html`.
-4. Save, and reload the doc. A "Markdown changes" menu appears.
-5. The first time you open the sidebar, Google asks you to approve
+4. If the project doesn't have it yet, add a script file named
+   `DocToolsMenu`, and replace its contents with
+   `../menu/DocToolsMenu.js`. It makes the "Doc tools" menu.
+5. Save, and reload the doc. The "Doc tools" menu has a "Markdown
+   changes sidebar" item.
+6. The first time you open the sidebar, Google asks you to approve
    access: only to the current doc and to show a sidebar.
 
 An Apps Script project's files share one namespace, so each function
 name can be defined only once in the whole project. In particular,
-there can be only one `onOpen()`: if another file in the project has
-one, the last file loaded silently wins, and the "Markdown changes"
-menu may vanish. If you need both, merge them into one `onOpen()`. All
-other names here start with `mdToGdocs`, so they won't clash.
+there can be only one `onOpen()`, and `DocToolsMenu` has it: if another
+file in the project has one, the last file loaded silently wins, and
+the "Doc tools" menu may vanish. If you need both, merge them into one
+`onOpen()`. All names in md-to-gdocs's own files start with
+`mdToGdocs`, so they won't clash.
 
-To update, replace both files' contents again, save, and reload the
+To update, replace the files' contents again, save, and reload the
 doc.
 
 ## Using it
@@ -68,7 +73,7 @@ doc.
    `-U100000` gives the whole file as context, which the tool needs.
    It prints a numbered summary of the changes, and a warning for each
    one you'll need to check or do by hand.
-4. **Open the sidebar:** Markdown changes > Open sidebar. I recommend
+4. **Open the sidebar:** Doc tools > Markdown changes sidebar. I recommend
    Suggesting mode (the pencil icon at the top right of the doc), so
    others can review each change; the mode is your choice.
 5. **Load the change list:** copy it (e.g., `wl-copy < ,changes.json`
